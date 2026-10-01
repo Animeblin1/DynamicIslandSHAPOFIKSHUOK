@@ -40,6 +40,8 @@ public partial class MainWindow : Window
     const double HostWidth = 620;
     const double BubbleWidth = 78, BubbleGap = 7; // the split-off bubble and the gap between it and the pill
     const int MaxMinutes = 99; // the countdown always reads mm:ss
+    const int HeadsetEvery = 300; // ticks between looks at the headphones' charge: it moves slowly
+    const int HeadsetLow = 20, HeadsetCritical = 10; // percent: passing each on the way down is worth a warning
     const double VolumeTrack = 162;
     const double SeekTrack = 260;
     const double SeekThin = 6, SeekHover = 9, SeekDrag = 12; // bar thickness: resting, under the pointer, while scrubbing
@@ -94,6 +96,8 @@ public partial class MainWindow : Window
     int _ticks;
     float _lastVolume = -1;
     bool _lastMuted, _lastPlugged, _powerKnown;
+    int _headset = -1; // charge of the output device in percent; -1: it reports none
+    Guid _headsetId; // ...and the device that number belongs to
     string _lastTitle = "";
     DateTime _lastPlaying = DateTime.MinValue;
     LyricsService.Line[] _lyricLines = [];
@@ -428,6 +432,7 @@ public partial class MainWindow : Window
     {
         _ticks++;
         PollVolume();
+        if (_ticks % HeadsetEvery == 1) ReadHeadset(_audio.Device);
         UpdateLyric();
         UpdateTimer();
         if (_ticks % 5 == 0) CheckFullscreen();
@@ -494,9 +499,7 @@ public partial class MainWindow : Window
         {
             // another device has its own level: that is not a volume change, so no HUD on top of the notice
             _lastVolume = -1;
-            Notify(device.Headphones ? "" : "", Brushes.White,
-                device.Kind.Length > 0 ? device.Kind : "Аудиоустройство",
-                device.Name.Length > 0 ? device.Name : "Вывод звука");
+            ReadHeadset(device, true);
         }
         bool first = _lastVolume < 0;
         if (!first && Math.Abs(level - _lastVolume) < 0.004 && muted == _lastMuted) return;
@@ -541,6 +544,39 @@ public partial class MainWindow : Window
         }
         _powerKnown = true;
         _lastPlugged = plugged;
+    }
+
+    /// <summary>Puts the charge of the output device (Bluetooth headphones report one) into the expanded views.</summary>
+    /// <param name="announce">The device has just taken over the sound: introduce it, charge included.</param>
+    async void ReadHeadset(AudioService.Output? output, bool announce = false)
+    {
+        int level = output is { } bound ? await Headset.ChargeAsync(bound.Container) : -1;
+        // swapped while this was being read: the new device gets a read of its own
+        if (output != _audio.Device) return;
+
+        AudioService.Output device = output ?? default;
+        // another device's charge is nothing to compare with
+        int was = device.Container == _headsetId ? _headset : -1;
+        _headset = level;
+        _headsetId = device.Container;
+
+        bool known = level >= 0, low = known && level <= HeadsetLow;
+        string icon = device.Headphones ? "" : "";
+        Brush red = (Brush)FindResource("Red");
+        InfoHeadsetRow.Visibility = PlayerHeadset.Visibility = known ? Visibility.Visible : Visibility.Collapsed;
+        InfoHeadsetIcon.Text = PlayerHeadsetIcon.Text = icon;
+        InfoHeadset.Text = PlayerHeadsetText.Text = level + "%";
+        InfoHeadset.Foreground = low ? red : Brushes.White;
+        PlayerHeadsetIcon.Foreground = PlayerHeadsetText.Foreground = low ? red : (Brush)FindResource("Dim");
+        if (output == null) return;
+
+        string name = device.Name.Length > 0 ? device.Name : "Вывод звука";
+        if (known) name += " · " + level + "%";
+        bool Passed(int mark) => was > mark && level <= mark;
+        if (announce)
+            Notify(icon, Brushes.White, device.Kind.Length > 0 ? device.Kind : "Аудиоустройство", name);
+        else if (known && (Passed(HeadsetLow) || Passed(HeadsetCritical)))
+            Notify(icon, red, "Низкий заряд", name);
     }
 
     // ───────────────────────── notices ─────────────────────────

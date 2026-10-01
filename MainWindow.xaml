@@ -376,6 +376,16 @@
                                   StrokeThickness="2" StrokeLineJoin="Round"/>
                         </Button>
                     </StackPanel>
+
+                    <!-- charge of the Bluetooth headphones the sound goes to, level with the buttons -->
+                    <StackPanel x:Name="PlayerHeadset" Orientation="Horizontal" Height="52" Margin="0,0,20,8"
+                                HorizontalAlignment="Right" VerticalAlignment="Bottom" IsHitTestVisible="False"
+                                Visibility="Collapsed">
+                        <TextBlock x:Name="PlayerHeadsetIcon" FontFamily="{StaticResource Icons}" Text="&#xE7F6;" FontSize="13"
+                                   Foreground="{StaticResource Dim}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="PlayerHeadsetText" FontSize="11" Foreground="{StaticResource Dim}" Margin="5,0,0,0"
+                                   Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"/>
+                    </StackPanel>
                 </Grid>
 
                 <!-- expanded, nothing playing -->
@@ -391,6 +401,13 @@
                             <TextBlock x:Name="InfoVolIcon" FontFamily="{StaticResource Icons}" Text="&#xE995;" FontSize="15"
                                        Foreground="{StaticResource Dim}" VerticalAlignment="Center"/>
                             <TextBlock x:Name="InfoVol" Text="—" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel x:Name="InfoHeadsetRow" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0"
+                                    Visibility="Collapsed">
+                            <TextBlock x:Name="InfoHeadsetIcon" FontFamily="{StaticResource Icons}" Text="&#xE7F6;" FontSize="15"
+                                       Foreground="{StaticResource Dim}" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="InfoHeadset" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                         <StackPanel x:Name="InfoBatRow" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0"

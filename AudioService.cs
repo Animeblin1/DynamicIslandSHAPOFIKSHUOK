@@ -6,7 +6,7 @@ namespace DynamicIsland;
 sealed class AudioService
 {
     const int ERender = 0, EMultimedia = 1, ClsCtxAll = 23;
-    const int VtLpwstr = 31, VtUi4 = 19;
+    const int VtLpwstr = 31, VtUi4 = 19, VtClsid = 72;
     const uint Headphones = 3, Headset = 5; // EndpointFormFactor
     static readonly TimeSpan Refresh = TimeSpan.FromSeconds(1);
 
@@ -15,9 +15,14 @@ sealed class AudioService
     static readonly PropertyKey FriendlyName = new(DeviceFormat, 14);    // "Наушники (WH-1000XM4)"
     static readonly PropertyKey InterfaceName = new(new("026e516e-b814-414b-83cd-856d6fef4822"), 2); // "WH-1000XM4"
     static readonly PropertyKey FormFactor = new(new("1da5d803-d492-4edd-8c23-e0c0ffee7f0e"), 0);
+    static readonly PropertyKey ContainerId = new(new("8c7ed206-3f8a-4827-b3ab-ae9e1faefc6c"), 2);
 
     /// <summary>What a playback device is and what it is called.</summary>
-    public readonly record struct Output(string Kind, string Name, bool Headphones);
+    /// <param name="Container">Shared by every part of one physical device: leads from the endpoint to its Bluetooth side.</param>
+    public readonly record struct Output(string Kind, string Name, bool Headphones, Guid Container);
+
+    /// <summary>The default playback device, or null while there is none.</summary>
+    public Output? Device { get; private set; }
 
     IAudioEndpointVolume? _volume;
     IAudioMeterInformation? _meter;
@@ -92,12 +97,14 @@ sealed class AudioService
                     if (device.Activate(ref iid, ClsCtxAll, IntPtr.Zero, out object? meter) == 0)
                         _meter = meter as IAudioMeterInformation;
 
+                    Device = Describe(device);
                     // the device the island starts with is not news
-                    if (_seen && id != _deviceId) _switched = Describe(device);
+                    if (_seen && id != _deviceId) _switched = Device;
                 }
                 else if (id == null)
                 {
                     Release();
+                    Device = null;
                 }
                 _deviceId = id;
                 _seen = true;
@@ -118,16 +125,18 @@ sealed class AudioService
     {
         string kind = "", name = "", full = "";
         uint form = 0;
+        Guid container = Guid.Empty;
         if (device.OpenPropertyStore(0, out IPropertyStore? store) == 0 && store != null)
         {
             kind = Text(store, DeviceDesc);
             name = Text(store, InterfaceName);
             full = Text(store, FriendlyName);
             form = Number(store, FormFactor);
+            container = Id(store, ContainerId);
             Marshal.ReleaseComObject(store);
         }
         if (kind.Length == 0) kind = full;
-        return new Output(kind, name, form is Headphones or Headset);
+        return new Output(kind, name, form is Headphones or Headset, container);
     }
 
     static string Text(IPropertyStore store, PropertyKey key)
@@ -141,6 +150,13 @@ sealed class AudioService
     {
         if (store.GetValue(ref key, out PropVariant value) != 0) return 0;
         try { return value.Type == VtUi4 ? (uint)(value.Value.ToInt64() & 0xFFFFFFFF) : 0; }
+        finally { PropVariantClear(ref value); }
+    }
+
+    static Guid Id(IPropertyStore store, PropertyKey key)
+    {
+        if (store.GetValue(ref key, out PropVariant value) != 0) return Guid.Empty;
+        try { return value.Type == VtClsid && value.Value != IntPtr.Zero ? Marshal.PtrToStructure<Guid>(value.Value) : Guid.Empty; }
         finally { PropVariantClear(ref value); }
     }
 
