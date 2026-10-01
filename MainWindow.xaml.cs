@@ -30,11 +30,11 @@ public partial class MainWindow : Window
         [View.Charge] = new(230, 34, 17),
         [View.Toast] = new(340, 68, 30),
         [View.Notice] = new(320, 64, 29),
-        [View.MediaBig] = new(380, 176, 40),
+        [View.MediaBig] = new(380, PlayerHeight, 40),
         [View.IdleBig] = new(320, 124, 38),
         [View.TimerBig] = new(330, 92, 40),
         [View.TimerSet] = new(300, 190, 38),
-        [View.Menu] = new(280, 168, 34),
+        [View.Menu] = new(300, 288, 34),
     };
 
     const double HostWidth = 620;
@@ -53,13 +53,15 @@ public partial class MainWindow : Window
     const double LyricEdge = 8; // faded strip on each side of the lyric box
     const double LyricSpeed = 36; // px per second, when the line lasts long enough to take it easy
     const double LyricGap = 4; // seconds of silence in the lyrics before the track name fills in
+    const double PlayerHeight = 176; // expanded player without lyrics
+    const double PlayerLyricRoom = 74; // it grows this much taller to fit three lines of them
+    const double PlayerLyricGap = 4; // between two lines there
+    const double PlayerLyricDim = 0.4; // opacity of the lines around the one being sung
     static readonly TimeSpan LyricLead = TimeSpan.FromMilliseconds(200); // the line lands as it is sung, not after
     static readonly TimeSpan PausedGrace = TimeSpan.FromSeconds(30);
     static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(550); // open panel, pointer gone
     static readonly TimeSpan BubbleLinger = TimeSpan.FromSeconds(2.5); // ...longer when it was opened from the bubble
     static readonly CultureInfo Ru = new("ru-RU");
-    static readonly Color SwitchOff = Color.FromRgb(0x39, 0x39, 0x3D);
-    static readonly Color SwitchOn = Color.FromRgb(0x30, 0xD1, 0x58);
 
     readonly Dictionary<View, FrameworkElement> _views;
     readonly Spring _w = new(34), _h = new(34), _r = new(17), _scale = new(1), _offset = new(0);
@@ -69,7 +71,6 @@ public partial class MainWindow : Window
     readonly RectangleGeometry _clip = new();
     readonly ImageBrush _art = new() { Stretch = Stretch.UniformToFill };
     readonly SolidColorBrush _accent = new(Colors.White);
-    readonly SolidColorBrush _switchBrush = new(SwitchOff);
     readonly AudioService _audio = new();
     readonly SpectrumService _spectrum = new();
     readonly float[] _bands = new float[SpectrumService.Bands];
@@ -106,6 +107,11 @@ public partial class MainWindow : Window
     bool _lyricNamed;
     double _mediaWidth = MediaWidth;
     TextBlock _lyric;
+    LyricsService.Line[] _playerLines = [];
+    TextBlock[] _playerRows = [];
+    double[] _playerMiddles = []; // where each row's middle sits in the column of lines
+    int _playerIndex = -1;
+    bool _playerRoom; // the expanded player has made room for lyrics
     IntPtr _hwnd;
 
     public MainWindow()
@@ -140,7 +146,6 @@ public partial class MainWindow : Window
         Host.Clip = _clip;
         ArtSmall.Background = ArtToast.Background = ArtBig.Background = _art;
         EqSmall.Fill = EqToast.Fill = EqBig.Fill = _accent;
-        SwitchTrack.Background = _switchBrush;
         _lyric = LyricA;
         _scale.Tune(320, 20);
         _offset.Tune(260, 26);
@@ -201,7 +206,7 @@ public partial class MainWindow : Window
         Place();
         SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.InvokeAsync(Place);
         UpdateClock();
-        UpdateSwitch(false);
+        UpdateSwitches(false);
         Intro();
         _tick.Start();
         if (_forcedTimer > 0) StartTimer(TimeSpan.FromSeconds(_forcedTimer));
@@ -249,13 +254,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        Dims from = SizeOf(_current), to = SizeOf(target);
+        Dims from = SizeOf(_current);
+        _current = target;
+        // how tall the player opens depends on whether it has lyrics to show
+        if (target == View.MediaBig) UpdatePlayerLyric(true);
+        Dims to = SizeOf(target);
         bool growing = to.W * to.H >= from.W * from.H;
         // overshoot a little when growing, settle firmly when shrinking
         _w.Tune(growing ? 300 : 340, growing ? 22 : 30);
         _h.Tune(growing ? 300 : 340, growing ? 22 : 30);
 
-        _current = target;
         Swap(_views[target]);
         SetTargets();
 
@@ -288,7 +296,12 @@ public partial class MainWindow : Window
         UpdateView();
     }
 
-    Dims SizeOf(View view) => view == View.Media ? Sizes[view] with { W = _mediaWidth } : Sizes[view];
+    Dims SizeOf(View view) => view switch
+    {
+        View.Media => Sizes[view] with { W = _mediaWidth },
+        View.MediaBig when _playerRoom => Sizes[view] with { H = PlayerHeight + PlayerLyricRoom },
+        _ => Sizes[view],
+    };
 
     void SetTargets()
     {
@@ -351,6 +364,13 @@ public partial class MainWindow : Window
 
         // the compact player is the one view that changes size on its own: keep its ends on the pill's ends
         if (_current == View.Media) MediaView.Width = w;
+        // ...and the expanded one grows taller for lyrics: its controls ride the pill's bottom edge down,
+        // and the lines come in once the room is half open
+        if (_current == View.MediaBig)
+        {
+            MediaBigView.Height = Math.Max(h, PlayerHeight);
+            PlayerLyricBox.Opacity = Math.Clamp((h - PlayerHeight) / PlayerLyricRoom * 2 - 1, 0, 1);
+        }
 
         _clip.Rect = new Rect((HostWidth - w) / 2, 0, w, h);
         _clip.RadiusX = _clip.RadiusY = r;
@@ -486,7 +506,7 @@ public partial class MainWindow : Window
 
     void CheckFullscreen()
     {
-        bool hidden = Native.IsForegroundFullscreen(_hwnd);
+        bool hidden = Settings.HideFullscreen && Native.IsForegroundFullscreen(_hwnd);
         if (hidden == _hidden) return;
         _hidden = hidden;
         SetTargets();
@@ -599,6 +619,8 @@ public partial class MainWindow : Window
 
     void OnNetworkChanged(NetworkService.State was, NetworkService.State now)
     {
+        if (!Settings.Network) return;
+
         if (now.Vpn != was.Vpn)
         {
             string[] before = was.Vpn.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -805,10 +827,13 @@ public partial class MainWindow : Window
         bool newTrack = title.Length > 0 && title != _lastTitle;
         _lastTitle = title;
         if (newTrack && _media.IsPlaying) ShowTransient(View.Toast, 3.2);
-        _lyrics.Track(title, _media.Artist);
+        TrackLyrics();
         UpdateView();
         UpdateLyric();
     }
+
+    // switched off in the menu, the lyrics are not even looked up
+    void TrackLyrics() => _lyrics.Track(Settings.Lyrics && _media.HasTrack ? _media.Title : "", _media.Artist);
 
     // ───────────────────────── lyrics ─────────────────────────
 
@@ -824,6 +849,7 @@ public partial class MainWindow : Window
     /// <param name="snap">The view is just appearing: drop the stale line instead of animating it away.</param>
     void UpdateLyric(bool snap = false)
     {
+        if (_current == View.MediaBig) UpdatePlayerLyric(snap);
         if (_current != View.Media) return;
 
         LyricsService.Line[] lines = _lyrics.For(_media.Duration);
@@ -910,6 +936,71 @@ public partial class MainWindow : Window
         blurIn.BeginAnimation(BlurEffect.RadiusProperty, sharpen);
         enter.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(10, 0, Ms(380)) { EasingFunction = ease });
         next.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Ms(300)));
+    }
+
+    /// <summary>The expanded player grows taller for the lyrics: the line being sung lit in the middle, its neighbours dimmed around it.</summary>
+    /// <param name="snap">The player is just opening: put the lines in place instead of scrolling to them.</param>
+    void UpdatePlayerLyric(bool snap = false)
+    {
+        LyricsService.Line[] lines = _lyrics.For(_media.Duration);
+        if (!ReferenceEquals(lines, _playerLines))
+        {
+            _playerLines = lines;
+            _playerIndex = -1;
+            LayPlayerLyric(lines);
+            // another song's lines: nothing to scroll from, they fade in where they belong
+            if (!snap) PlayerLyricLines.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Ms(300)));
+            snap = true;
+        }
+
+        // the search takes a moment after a track change: hold the room meanwhile rather than close it only to open it again
+        bool room = lines.Length > 0 || (_playerRoom && _lyrics.Pending);
+        if (room != _playerRoom)
+        {
+            _playerRoom = room;
+            _h.Tune(280, 30); // the pill glides to its new height, no bounce
+            SetTargets();
+        }
+        if (lines.Length == 0) return;
+
+        TimeSpan at = _media.Position + LyricLead;
+        int index = lines.Length - 1;
+        while (index >= 0 && lines[index].Time > at) index--;
+        if (index == _playerIndex && !snap) return;
+
+        Duration fade = Ms(snap ? 0 : 300);
+        if (_playerIndex >= 0) _playerRows[_playerIndex].BeginAnimation(OpacityProperty, new DoubleAnimation(PlayerLyricDim, fade));
+        if (index >= 0) _playerRows[index].BeginAnimation(OpacityProperty, new DoubleAnimation(1, fade));
+        _playerIndex = index;
+
+        // before the first line is sung, it waits in the middle unlit
+        double middle = _playerMiddles[Math.Max(index, 0)];
+        PlayerLyricMove.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(PlayerLyricBox.Height / 2 - middle, Ms(snap ? 0 : 450))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+    }
+
+    /// <summary>Stacks the whole song in a column; the box shows three lines of it at a time.</summary>
+    void LayPlayerLyric(LyricsService.Line[] lines)
+    {
+        PlayerLyricLines.Children.Clear();
+        _playerRows = new TextBlock[lines.Length];
+        _playerMiddles = new double[lines.Length];
+
+        var style = (Style)FindResource("LyricRow");
+        double width = PlayerLyricBox.Width, top = 0;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            // a line with no words marks a break in the singing
+            var row = new TextBlock { Style = style, Text = lines[i].Text.Length > 0 ? lines[i].Text : "♪", Width = width, Opacity = PlayerLyricDim };
+            PlayerLyricLines.Children.Add(row);
+            row.Measure(new Size(width, double.PositiveInfinity));
+            Canvas.SetTop(row, top);
+            _playerMiddles[i] = top + row.DesiredSize.Height / 2;
+            top += row.DesiredSize.Height + PlayerLyricGap;
+            _playerRows[i] = row;
+        }
     }
 
     // ───────────────────────── seek bar ─────────────────────────
@@ -1055,7 +1146,7 @@ public partial class MainWindow : Window
     void Root_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
     {
         Open(_panel == Panel.Menu ? Panel.None : Panel.Menu);
-        UpdateSwitch(false);
+        UpdateSwitches(false);
         UpdateView();
     }
 
@@ -1080,16 +1171,36 @@ public partial class MainWindow : Window
     {
         try { Autostart.Set(!Autostart.Enabled); }
         catch (Exception ex) { App.Log(ex); }
-        UpdateSwitch(true);
+        UpdateSwitches(true);
     }
 
-    void UpdateSwitch(bool animate)
+    void Lyrics_Click(object sender, RoutedEventArgs e)
     {
-        bool on = Autostart.Enabled;
-        Duration d = Ms(animate ? 220 : 0);
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        _switchBrush.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(on ? SwitchOn : SwitchOff, d));
-        SwitchKnob.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(on ? 16 : 0, d) { EasingFunction = ease });
+        Settings.Lyrics = !Settings.Lyrics;
+        UpdateSwitches(true);
+        // drops the lyrics of the track that is playing, or goes looking for them
+        TrackLyrics();
+    }
+
+    void Network_Click(object sender, RoutedEventArgs e)
+    {
+        Settings.Network = !Settings.Network;
+        UpdateSwitches(true);
+    }
+
+    void Fullscreen_Click(object sender, RoutedEventArgs e)
+    {
+        Settings.HideFullscreen = !Settings.HideFullscreen;
+        UpdateSwitches(true);
+        CheckFullscreen();
+    }
+
+    void UpdateSwitches(bool animate)
+    {
+        LyricsSwitch.Set(Settings.Lyrics, animate);
+        NetworkSwitch.Set(Settings.Network, animate);
+        FullscreenSwitch.Set(Settings.HideFullscreen, animate);
+        AutostartSwitch.Set(Autostart.Enabled, animate);
     }
 
     void Exit_Click(object sender, RoutedEventArgs e)

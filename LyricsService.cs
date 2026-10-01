@@ -39,8 +39,11 @@ sealed class LyricsService
     string _key = "";
     int _version;
 
-    /// <summary>Raised on the calling (UI) thread once lyrics for the track have arrived.</summary>
+    /// <summary>Raised on the calling (UI) thread once the search for the track's lyrics has come back, with or without them.</summary>
     public event Action? Changed;
+
+    /// <summary>The search for the track's lyrics has not come back yet.</summary>
+    public bool Pending { get; private set; }
 
     /// <summary>Call from the UI thread whenever the track may have changed.</summary>
     public void Track(string title, string artist)
@@ -53,7 +56,8 @@ sealed class LyricsService
         _stretchedFor = 0;
         _reworked = Reworked.IsMatch(title);
         int version = ++_version;
-        if (title.Length > 0) _ = LoadAsync(title, artist, version);
+        Pending = title.Length > 0;
+        if (Pending) _ = LoadAsync(title, artist, version);
     }
 
     /// <summary>Lines of the version whose length matches the playing one; empty when there is none.</summary>
@@ -99,18 +103,21 @@ sealed class LyricsService
 
     async Task LoadAsync(string title, string artist, int version)
     {
+        Candidate[] found = [];
         try
         {
-            Candidate[] found = await Task.Run(() => FetchAsync(title, artist));
-            if (version != _version) return;
-            _candidates = found;
-            _stretchedFor = 0;
-            Changed?.Invoke();
+            found = await Task.Run(() => FetchAsync(title, artist));
         }
         catch
         {
             // offline or LRCLIB is down: the island simply shows no lyrics
         }
+        if (version != _version) return;
+
+        _candidates = found;
+        _stretchedFor = 0;
+        Pending = false;
+        Changed?.Invoke();
     }
 
     static async Task<Candidate[]> FetchAsync(string title, string artist)
