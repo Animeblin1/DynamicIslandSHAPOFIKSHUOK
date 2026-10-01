@@ -24,23 +24,35 @@
 | Колесо мыши | Громкость (в настройке таймера — минуты) |
 | Клик по звонящему таймеру | Выключить звонок |
 
-## Требования
+## Скачать
 
-- Windows 10 2004 (сборка 19041) или новее, Windows 11
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) для сборки, .NET 8 Desktop Runtime для запуска
+Готовый `DynamicIsland.exe` лежит в [релизах](https://github.com/mihailkotovski/DynamicIsland/releases/latest). Устанавливать ничего не нужно: скачайте и запустите. Подходит для 64-битных Windows 10 2004 (сборка 19041) и новее, Windows 11.
 
-## Сборка и запуск
+Файл не подписан, поэтому при первом запуске SmartScreen может предупредить о неизвестном издателе: «Подробнее» → «Выполнить в любом случае».
+
+## Сборка из исходников
+
+Нужен [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 
 ```bash
-git clone <адрес репозитория>
+git clone https://github.com/mihailkotovski/DynamicIsland.git
 cd DynamicIsland
 dotnet run -c Release
 ```
 
-Один exe-файл, которому нужен только установленный .NET 8 Desktop Runtime:
+Один exe-файл, которому не нужен установленный .NET — так же собирается релиз:
 
 ```bash
-dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish
+```
+
+### Выпуск новой версии
+
+Релиз собирает GitHub Actions ([release.yml](.github/workflows/release.yml)) — достаточно запушить тег:
+
+```bash
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
 ### Шрифты
