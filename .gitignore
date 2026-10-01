@@ -17,10 +17,6 @@ publish/
 # Claude Code local state
 .claude/
 
-# SF Pro is licensed by Apple and may not be redistributed — see Fonts/README.md
-Fonts/*.otf
-Fonts/*.ttf
-
 # OS noise
 Thumbs.db
 Desktop.ini
