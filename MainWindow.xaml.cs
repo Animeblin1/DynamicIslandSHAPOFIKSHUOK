@@ -154,7 +154,7 @@ public partial class MainWindow : Window
         _r.Tune(300, 30);
         _seekX.Tune(170, 26);
         _seekH.Tune(420, 26);
-        _split.Tune(260, 22);
+        _split.Tune(140, 17); // unhurried: the neck between the two has to be seen stretching and snapping
         _bubbleScale.Tune(320, 20);
 
         // debug aid: `DynamicIsland.exe --view MediaBig` pins one state, `--timer 90` starts a 90 s countdown
@@ -369,6 +369,7 @@ public partial class MainWindow : Window
         Pill.Width = Shadow.Width = w;
         Pill.Height = Shadow.Height = h;
         Pill.CornerRadius = Shadow.CornerRadius = new CornerRadius(r);
+        var pill = new Rect((HostWidth - w) / 2, 0, w, h);
         Shadow.Opacity = Math.Clamp((h - 40) / 50, 0, 1);
 
         // the compact player is the one view that changes size on its own: keep its ends on the pill's ends
@@ -381,20 +382,29 @@ public partial class MainWindow : Window
             PlayerLyricBox.Opacity = Math.Clamp((h - PlayerHeight) / PlayerLyricRoom * 2 - 1, 0, 1);
         }
 
-        _clip.Rect = new Rect((HostWidth - w) / 2, 0, w, h);
+        _clip.Rect = pill;
         _clip.RadiusX = _clip.RadiusY = r;
 
         double scale = Math.Max(_scale.Value, 0.01);
         IslandScale.ScaleX = IslandScale.ScaleY = scale;
         RootMove.Y = _offset.Value;
 
-        // the bubble rides the pill's right end: hidden behind it, then out past the gap, its content fading in last.
+        // the bubble rides the pill's right end: inside it, then out past the gap, its content fading in as it comes free.
         // It follows that end as the pill swells under the pointer, but keeps its own size
-        double split = _split.Value;
-        Bubble.Visibility = split > 0.01 ? Visibility.Visible : Visibility.Collapsed;
+        double split = _split.Value, bubble = Math.Max(_bubbleScale.Value, 0.01);
+        bool apart = split > 0.01;
+        Bubble.Visibility = apart ? Visibility.Visible : Visibility.Collapsed;
         BubbleMove.X = (w * scale - BubbleWidth) / 2 + (BubbleGap + BubbleWidth) * split;
-        BubbleScale.ScaleX = BubbleScale.ScaleY = Math.Max(_bubbleScale.Value, 0.01);
-        BubbleBody.Opacity = Math.Clamp(split * 2 - 1, 0, 1);
+        BubbleScale.ScaleX = BubbleScale.ScaleY = bubble;
+        BubbleBody.Opacity = Math.Clamp(split * 4 - 3, 0, 1);
+        // until then the pill's end is the pill's to click
+        Bubble.IsHitTestVisible = split > 0.75;
+
+        // the body is drawn in the pill's own scale, so the bubble is measured in it too
+        double past = ((BubbleGap + BubbleWidth) * split - BubbleWidth) / scale; // of its left end beyond the pill's right one
+        Body.Shape(pill, r, apart
+            ? new Rect(pill.Right + past, 0, BubbleWidth * bubble / scale, Bubble.Height * bubble / scale)
+            : Rect.Empty);
     }
 
     void Swap(FrameworkElement next)
@@ -537,8 +547,7 @@ public partial class MainWindow : Window
         _lastMuted = muted;
 
         int percent = (int)Math.Round(level * 100);
-        string icon = muted || percent == 0 ? "" : level < 0.34 ? "" : level < 0.67 ? "" : "";
-        VolIcon.Text = InfoVolIcon.Text = icon;
+        VolIcon.Kind = InfoVolIcon.Kind = muted || percent == 0 ? Glyph.Mute : level < 0.34 ? Glyph.Quiet : level < 0.67 ? Glyph.Mid : Glyph.Loud;
         VolText.Text = percent.ToString();
         InfoVol.Text = muted ? "выкл" : percent + "%";
         VolFill.BeginAnimation(WidthProperty, new DoubleAnimation(muted ? 0 : VolumeTrack * level, Ms(first ? 0 : 140))
@@ -590,13 +599,13 @@ public partial class MainWindow : Window
         _headsetId = device.Container;
 
         bool known = level >= 0, low = known && level <= HeadsetLow;
-        string icon = device.Headphones ? "" : "";
+        Glyph icon = device.Headphones ? Glyph.Headphones : Glyph.Speaker;
         Brush red = (Brush)FindResource("Red");
         InfoHeadsetRow.Visibility = PlayerHeadset.Visibility = known ? Visibility.Visible : Visibility.Collapsed;
-        InfoHeadsetIcon.Text = PlayerHeadsetIcon.Text = icon;
+        InfoHeadsetIcon.Kind = PlayerHeadsetIcon.Kind = icon;
         InfoHeadset.Text = PlayerHeadsetText.Text = level + "%";
         InfoHeadset.Foreground = low ? red : Brushes.White;
-        PlayerHeadsetIcon.Foreground = PlayerHeadsetText.Foreground = low ? red : (Brush)FindResource("Dim");
+        PlayerHeadsetIcon.Fill = PlayerHeadsetText.Foreground = low ? red : (Brush)FindResource("Dim");
         if (output == null) return;
 
         string name = device.Name.Length > 0 ? device.Name : "Вывод звука";
@@ -611,14 +620,14 @@ public partial class MainWindow : Window
     // ───────────────────────── notices ─────────────────────────
 
     /// <summary>One-off notice in the pill: an icon, a title and a line of detail.</summary>
-    void Notify(string icon, Brush tint, string title, string text, double seconds = 3.2, bool force = false)
+    void Notify(Glyph icon, Brush tint, string title, string text, double seconds = 3.2, bool force = false)
     {
         // nothing talks over a ringing timer
         if (_ringing && !force) return;
 
         bool shown = _current == View.Notice;
-        NoticeIcon.Text = icon;
-        NoticeIcon.Foreground = tint;
+        NoticeIcon.Kind = icon;
+        NoticeIcon.Fill = tint;
         NoticeTitle.Text = title;
         NoticeText.Text = text;
         ShowTransient(View.Notice, seconds, force);
@@ -635,16 +644,16 @@ public partial class MainWindow : Window
             string[] before = was.Vpn.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             string[] after = now.Vpn.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             if (after.Except(before).FirstOrDefault() is { } up)
-                Notify("", (Brush)FindResource("Green"), "VPN включён", up);
+                Notify(Glyph.Vpn, (Brush)FindResource("Green"), "VPN включён", up);
             else if (before.Except(after).FirstOrDefault() is { } down)
-                Notify("", (Brush)FindResource("Dim"), "VPN отключён", down);
+                Notify(Glyph.Vpn, (Brush)FindResource("Dim"), "VPN отключён", down);
             // a tunnel going up or down also reshuffles the connection underneath: one notice is enough
             return;
         }
 
         if (now.Link == NetworkService.Link.None)
         {
-            Notify("", (Brush)FindResource("Red"), "Нет сети", "Подключение потеряно");
+            Notify(Glyph.Offline, (Brush)FindResource("Red"), "Нет сети", "Подключение потеряно");
             return;
         }
 
@@ -657,9 +666,9 @@ public partial class MainWindow : Window
             _ => "Мобильная сеть",
         };
         if (now.Internet)
-            Notify(wifi ? "" : "", (Brush)FindResource("Green"), title, wifi ? "Wi-Fi подключён" : "Сеть подключена");
+            Notify(wifi ? Glyph.Wifi : Glyph.Wired, (Brush)FindResource("Green"), title, wifi ? "Wi-Fi подключён" : "Сеть подключена");
         else
-            Notify(wifi ? "" : "", (Brush)FindResource("Orange"), title, "Без доступа к интернету");
+            Notify(wifi ? Glyph.Wifi : Glyph.Wired, (Brush)FindResource("Orange"), title, "Без доступа к интернету");
     }
 
     // ───────────────────────── timer ─────────────────────────
@@ -728,7 +737,7 @@ public partial class MainWindow : Window
         };
         NoticePulse.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
         NoticePulse.BeginAnimation(ScaleTransform.ScaleYProperty, pulse);
-        Notify("", (Brush)FindResource("Orange"), "Таймер", "Время вышло · " + total, 12, true);
+        Notify(Glyph.Bell, (Brush)FindResource("Orange"), "Таймер", "Время вышло · " + total, 12, true);
         SetTargets();
     }
 

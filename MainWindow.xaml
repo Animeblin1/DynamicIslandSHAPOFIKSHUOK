@@ -9,7 +9,6 @@
         FontFamily="./Fonts/#SF Pro Text, SF Pro Text, Segoe UI Variable Display, Segoe UI" Foreground="White">
 
     <Window.Resources>
-        <FontFamily x:Key="Icons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
         <SolidColorBrush x:Key="Dim" Color="#99FFFFFF"/>
         <SolidColorBrush x:Key="Orange" Color="#FF9F0A"/>
         <SolidColorBrush x:Key="Green" Color="#30D158"/>
@@ -162,29 +161,6 @@
             <TranslateTransform x:Name="RootMove"/>
         </Grid.RenderTransform>
 
-        <!-- a second activity (the timer, while the pill is busy with something else) splits off into its own
-             bubble: it sits behind the pill's right end and slides out from under it. It answers the pointer
-             on its own, growing away from the pill so the gap between them holds -->
-        <Border x:Name="Bubble" Width="78" Height="34" CornerRadius="17" Visibility="Collapsed"
-                Background="Black" BorderBrush="#20FFFFFF" BorderThickness="1"
-                HorizontalAlignment="Center" VerticalAlignment="Top" RenderTransformOrigin="0,0"
-                MouseEnter="Bubble_MouseEnter" MouseLeave="Bubble_MouseLeave"
-                MouseLeftButtonDown="Bubble_MouseLeftButtonDown" MouseLeftButtonUp="Bubble_MouseLeftButtonUp">
-            <Border.RenderTransform>
-                <TransformGroup>
-                    <ScaleTransform x:Name="BubbleScale"/>
-                    <TranslateTransform x:Name="BubbleMove"/>
-                </TransformGroup>
-            </Border.RenderTransform>
-            <Grid x:Name="BubbleBody">
-                <local:Ring x:Name="BubbleRing" Width="16" Height="16" Stroke="{StaticResource Orange}"
-                            HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                <local:Digits x:Name="BubbleText" Text="25:00" FontSize="12.5" FontWeight="SemiBold"
-                              Foreground="{StaticResource Orange}"
-                              HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0"/>
-            </Grid>
-        </Border>
-
         <!-- the pill and everything in it: one piece under the pointer, scaled from its top centre -->
         <Grid x:Name="Island" RenderTransformOrigin="0.5,0"
               MouseEnter="Island_MouseEnter" MouseLeave="Island_MouseLeave">
@@ -199,8 +175,11 @@
                 </Border.Effect>
             </Border>
 
-            <Border x:Name="Pill" Background="Black" BorderBrush="#20FFFFFF" BorderThickness="1"
-                    HorizontalAlignment="Center" VerticalAlignment="Top"/>
+            <!-- the black itself, the bubble's included -->
+            <local:Goo x:Name="Body" IsHitTestVisible="False"/>
+
+            <!-- what the pointer lands on -->
+            <Border x:Name="Pill" Background="Transparent" HorizontalAlignment="Center" VerticalAlignment="Top"/>
 
             <!-- every state lives here at its final size; the pill clip reveals it -->
             <Grid x:Name="Host">
@@ -216,8 +195,7 @@
                 <Grid x:Name="MediaView" Width="210" Height="34" HorizontalAlignment="Center" VerticalAlignment="Top">
                     <Grid Width="22" Height="22" HorizontalAlignment="Left" Margin="7,0,0,0">
                         <Border CornerRadius="6" Background="{StaticResource ArtPlaceholder}">
-                            <TextBlock FontFamily="{StaticResource Icons}" Text="&#xE8D6;" FontSize="11" Foreground="{StaticResource Dim}"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <local:Icon Kind="Note" Width="13" Height="13" Fill="{StaticResource Dim}"/>
                         </Border>
                         <Border x:Name="ArtSmall" CornerRadius="6" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Grid>
@@ -266,8 +244,7 @@
                         <ColumnDefinition Width="162"/>
                         <ColumnDefinition/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="VolIcon" FontFamily="{StaticResource Icons}" Text="&#xE995;" FontSize="15"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <local:Icon x:Name="VolIcon" Kind="Loud" Width="17" Height="17"/>
                     <Grid Grid.Column="1" Height="5" VerticalAlignment="Center">
                         <Border CornerRadius="2.5" Background="#33FFFFFF"/>
                         <Border x:Name="VolFill" CornerRadius="2.5" Background="White" HorizontalAlignment="Left" Width="0"/>
@@ -298,8 +275,7 @@
                 <Grid x:Name="ToastView" Width="340" Height="68" HorizontalAlignment="Center" VerticalAlignment="Top">
                     <Grid Width="44" Height="44" HorizontalAlignment="Left" Margin="12,0,0,0">
                         <Border CornerRadius="11" Background="{StaticResource ArtPlaceholder}">
-                            <TextBlock FontFamily="{StaticResource Icons}" Text="&#xE8D6;" FontSize="19" Foreground="{StaticResource Dim}"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <local:Icon Kind="Note" Width="22" Height="22" Fill="{StaticResource Dim}"/>
                         </Border>
                         <Border x:Name="ArtToast" CornerRadius="11" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Grid>
@@ -315,12 +291,11 @@
                 <!-- one-off notice: audio device, network, timer finished -->
                 <Grid x:Name="NoticeView" Width="320" Height="64" HorizontalAlignment="Center" VerticalAlignment="Top">
                     <Border Width="40" Height="40" CornerRadius="11" Background="#1FFFFFFF" HorizontalAlignment="Left" Margin="12,0,0,0">
-                        <TextBlock x:Name="NoticeIcon" FontFamily="{StaticResource Icons}" FontSize="19"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5">
-                            <TextBlock.RenderTransform>
+                        <local:Icon x:Name="NoticeIcon" Width="22" Height="22" RenderTransformOrigin="0.5,0.5">
+                            <local:Icon.RenderTransform>
                                 <ScaleTransform x:Name="NoticePulse"/>
-                            </TextBlock.RenderTransform>
-                        </TextBlock>
+                            </local:Icon.RenderTransform>
+                        </local:Icon>
                     </Border>
                     <StackPanel Margin="64,0,22,0" VerticalAlignment="Center">
                         <TextBlock x:Name="NoticeTitle" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
@@ -340,8 +315,7 @@
                         <Grid Width="64" Height="64" HorizontalAlignment="Left" Cursor="Hand"
                               MouseLeftButtonUp="Art_MouseLeftButtonUp">
                             <Border CornerRadius="16" Background="{StaticResource ArtPlaceholder}">
-                                <TextBlock FontFamily="{StaticResource Icons}" Text="&#xE8D6;" FontSize="26" Foreground="{StaticResource Dim}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <local:Icon Kind="Note" Width="30" Height="30" Fill="{StaticResource Dim}"/>
                             </Border>
                             <Border x:Name="ArtBig" CornerRadius="16" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Grid>
@@ -416,8 +390,8 @@
                     <StackPanel x:Name="PlayerHeadset" Orientation="Horizontal" Height="52" Margin="0,0,20,8"
                                 HorizontalAlignment="Right" VerticalAlignment="Bottom" IsHitTestVisible="False"
                                 Visibility="Collapsed">
-                        <TextBlock x:Name="PlayerHeadsetIcon" FontFamily="{StaticResource Icons}" Text="&#xE7F6;" FontSize="13"
-                                   Foreground="{StaticResource Dim}" VerticalAlignment="Center"/>
+                        <local:Icon x:Name="PlayerHeadsetIcon" Kind="Headphones" Width="14" Height="14"
+                                    Fill="{StaticResource Dim}" VerticalAlignment="Center"/>
                         <TextBlock x:Name="PlayerHeadsetText" FontSize="11" Foreground="{StaticResource Dim}" Margin="5,0,0,0"
                                    Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"/>
                     </StackPanel>
@@ -433,22 +407,22 @@
                     </StackPanel>
                     <StackPanel Margin="0,0,24,0" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <TextBlock x:Name="InfoVolIcon" FontFamily="{StaticResource Icons}" Text="&#xE995;" FontSize="15"
-                                       Foreground="{StaticResource Dim}" VerticalAlignment="Center"/>
+                            <local:Icon x:Name="InfoVolIcon" Kind="Loud" Width="16" Height="16"
+                                        Fill="{StaticResource Dim}" VerticalAlignment="Center"/>
                             <TextBlock x:Name="InfoVol" Text="—" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                         <StackPanel x:Name="InfoHeadsetRow" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0"
                                     Visibility="Collapsed">
-                            <TextBlock x:Name="InfoHeadsetIcon" FontFamily="{StaticResource Icons}" Text="&#xE7F6;" FontSize="15"
-                                       Foreground="{StaticResource Dim}" VerticalAlignment="Center"/>
+                            <local:Icon x:Name="InfoHeadsetIcon" Kind="Headphones" Width="16" Height="16"
+                                        Fill="{StaticResource Dim}" VerticalAlignment="Center"/>
                             <TextBlock x:Name="InfoHeadset" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                         <StackPanel x:Name="InfoBatRow" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0"
                                     Visibility="Collapsed">
-                            <TextBlock FontFamily="{StaticResource Icons}" Text="&#xE83F;" FontSize="15"
-                                       Foreground="{StaticResource Dim}" VerticalAlignment="Center"/>
+                            <local:Icon Kind="Battery" Width="16" Height="16"
+                                        Fill="{StaticResource Dim}" VerticalAlignment="Center"/>
                             <TextBlock x:Name="InfoBat" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
@@ -497,13 +471,13 @@
                                    Margin="8,0,0,0"/>
                         <Grid Height="56">
                             <Button Style="{StaticResource IconButton}" HorizontalAlignment="Left" Click="TimerLess_Click">
-                                <TextBlock FontFamily="{StaticResource Icons}" Text="&#xE738;" FontSize="15"/>
+                                <local:Icon Kind="Minus" Width="16" Height="16"/>
                             </Button>
                             <local:Digits x:Name="SetupText" Text="25:00" FontSize="38" FontWeight="SemiBold"
                                           FontFamily="./Fonts/#SF Pro Display, SF Pro Display, Segoe UI Variable Display, Segoe UI"
                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             <Button Style="{StaticResource IconButton}" HorizontalAlignment="Right" Click="TimerMore_Click">
-                                <TextBlock FontFamily="{StaticResource Icons}" Text="&#xE710;" FontSize="15"/>
+                                <local:Icon Kind="Plus" Width="16" Height="16"/>
                             </Button>
                         </Grid>
                         <UniformGrid Rows="1" Margin="0,4,0,0">
@@ -529,8 +503,8 @@
                                 <TextBlock Text="Таймер" VerticalAlignment="Center"/>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <local:Digits x:Name="MenuTimer" Foreground="{StaticResource Orange}" VerticalAlignment="Center"/>
-                                    <TextBlock FontFamily="{StaticResource Icons}" Text="&#xE76C;" FontSize="10"
-                                               Foreground="{StaticResource Dim}" Margin="8,1,0,0" VerticalAlignment="Center"/>
+                                    <local:Icon Kind="Chevron" Width="11" Height="11"
+                                                Fill="{StaticResource Dim}" Margin="8,1,0,0" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Grid>
                         </Button>
@@ -565,5 +539,29 @@
                 </Grid>
             </Grid>
         </Grid>
+
+        <!-- a second activity (the timer, while the pill is busy with something else) splits off into its own
+             bubble: it starts inside the pill's right end and is pulled out of it. Its black is part of the
+             body the island draws, this is what it shows. It answers the pointer on its own, growing away
+             from the pill so the gap between them holds -->
+        <Border x:Name="Bubble" Width="78" Height="34" CornerRadius="17" Visibility="Collapsed"
+                Background="Transparent" Padding="1"
+                HorizontalAlignment="Center" VerticalAlignment="Top" RenderTransformOrigin="0,0"
+                MouseEnter="Bubble_MouseEnter" MouseLeave="Bubble_MouseLeave"
+                MouseLeftButtonDown="Bubble_MouseLeftButtonDown" MouseLeftButtonUp="Bubble_MouseLeftButtonUp">
+            <Border.RenderTransform>
+                <TransformGroup>
+                    <ScaleTransform x:Name="BubbleScale"/>
+                    <TranslateTransform x:Name="BubbleMove"/>
+                </TransformGroup>
+            </Border.RenderTransform>
+            <Grid x:Name="BubbleBody">
+                <local:Ring x:Name="BubbleRing" Width="16" Height="16" Stroke="{StaticResource Orange}"
+                            HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <local:Digits x:Name="BubbleText" Text="25:00" FontSize="12.5" FontWeight="SemiBold"
+                              Foreground="{StaticResource Orange}"
+                              HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            </Grid>
+        </Border>
     </Grid>
 </Window>
