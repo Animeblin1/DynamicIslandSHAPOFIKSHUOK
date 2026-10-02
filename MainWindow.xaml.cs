@@ -34,7 +34,7 @@ public partial class MainWindow : Window
         [View.IdleBig] = new(320, 124, 38),
         [View.TimerBig] = new(330, 92, 40),
         [View.TimerSet] = new(300, 190, 38),
-        [View.Menu] = new(300, 288, 34),
+        [View.Menu] = new(300, 328, 34),
     };
 
     const double HostWidth = 620;
@@ -968,7 +968,8 @@ public partial class MainWindow : Window
     /// <param name="snap">The player is just opening: put the lines in place instead of scrolling to them.</param>
     void UpdatePlayerLyric(bool snap = false)
     {
-        LyricsService.Line[] lines = _lyrics.For(_media.Duration);
+        // switched off in the menu, the player stays as it is without lyrics
+        LyricsService.Line[] lines = Settings.PlayerLyrics ? _lyrics.For(_media.Duration) : [];
         if (!ReferenceEquals(lines, _playerLines))
         {
             _playerLines = lines;
@@ -1284,6 +1285,13 @@ public partial class MainWindow : Window
         TrackLyrics();
     }
 
+    // the player picks it up the next time it opens: it is the menu that is open now
+    void PlayerLyrics_Click(object sender, RoutedEventArgs e)
+    {
+        Settings.PlayerLyrics = !Settings.PlayerLyrics;
+        UpdateSwitches(true);
+    }
+
     void Network_Click(object sender, RoutedEventArgs e)
     {
         Settings.Network = !Settings.Network;
@@ -1300,6 +1308,7 @@ public partial class MainWindow : Window
     void UpdateSwitches(bool animate)
     {
         LyricsSwitch.Set(Settings.Lyrics, animate);
+        PlayerLyricsSwitch.Set(Settings.PlayerLyrics, animate);
         NetworkSwitch.Set(Settings.Network, animate);
         FullscreenSwitch.Set(Settings.HideFullscreen, animate);
         AutostartSwitch.Set(Autostart.Enabled, animate);
