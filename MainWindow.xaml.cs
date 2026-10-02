@@ -57,6 +57,10 @@ public partial class MainWindow : Window
     const double PlayerLyricRoom = 74; // it grows this much taller to fit three lines of them
     const double PlayerLyricGap = 4; // between two lines there
     const double PlayerLyricDim = 0.4; // opacity of the lines around the one being sung
+    const double PlayerLyricSmall = 0.94; // ...their size next to it
+    const double PlayerLyricBlur = 1.5; // ...and how far out of focus they are
+    const double PlayerLyricAhead = 0.6; // opacity of the part of that line not sung yet
+    const double PlayerLyricLongest = 8; // seconds a line takes to fill at most: what is left until the next one is a break
     static readonly TimeSpan LyricLead = TimeSpan.FromMilliseconds(200); // the line lands as it is sung, not after
     static readonly TimeSpan PausedGrace = TimeSpan.FromSeconds(30);
     static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(550); // open panel, pointer gone
@@ -110,7 +114,7 @@ public partial class MainWindow : Window
     double _mediaWidth = MediaWidth;
     TextBlock _lyric;
     LyricsService.Line[] _playerLines = [];
-    TextBlock[] _playerRows = [];
+    Lyric[] _playerRows = [];
     double[] _playerMiddles = []; // where each row's middle sits in the column of lines
     int _playerIndex = -1;
     bool _playerRoom; // the expanded player has made room for lyrics
@@ -836,7 +840,7 @@ public partial class MainWindow : Window
             _art.BeginAnimation(Brush.OpacityProperty, new DoubleAnimation(0, 1, Ms(350)));
             var tint = new ColorAnimation(_media.Accent, Ms(450));
             _accent.BeginAnimation(SolidColorBrush.ColorProperty, tint);
-            Glow.BeginAnimation(Aura.ColorProperty, tint);
+            Glow.Tint(_media.Palette, tint.Duration);
         }
 
         PlayIcon.Visibility = _media.IsPlaying ? Visibility.Collapsed : Visibility.Visible;
@@ -957,7 +961,10 @@ public partial class MainWindow : Window
         next.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Ms(300)));
     }
 
-    /// <summary>The expanded player grows taller for the lyrics: the line being sung lit in the middle, its neighbours dimmed around it.</summary>
+    /// <summary>
+    /// The expanded player grows taller for the lyrics: the line being sung in the middle, filling with light as it
+    /// goes, its neighbours around it smaller, dimmer and out of focus.
+    /// </summary>
     /// <param name="snap">The player is just opening: put the lines in place instead of scrolling to them.</param>
     void UpdatePlayerLyric(bool snap = false)
     {
@@ -988,9 +995,18 @@ public partial class MainWindow : Window
         if (index == _playerIndex && !snap) return;
 
         Duration fade = Ms(snap ? 0 : 300);
-        if (_playerIndex >= 0) _playerRows[_playerIndex].BeginAnimation(OpacityProperty, new DoubleAnimation(PlayerLyricDim, fade));
-        if (index >= 0) _playerRows[index].BeginAnimation(OpacityProperty, new DoubleAnimation(1, fade));
+        int was = _playerIndex;
         _playerIndex = index;
+        for (int i = 0; i < _playerRows.Length; i++)
+        {
+            Lyric row = _playerRows[i];
+            if (i == index || i == was) Sing(row, i == index, fade);
+            // only the lines in sight carry a blur; the one being sung comes into focus
+            if (i != index && Math.Abs(i - index) <= 2) Focus(row, PlayerLyricBlur, fade);
+            else if (i == index) Focus(row, 0, fade);
+            else row.Effect = null;
+        }
+        SweepPlayerLyric();
 
         // before the first line is sung, it waits in the middle unlit
         double middle = _playerMiddles[Math.Max(index, 0)];
@@ -1004,15 +1020,21 @@ public partial class MainWindow : Window
     void LayPlayerLyric(LyricsService.Line[] lines)
     {
         PlayerLyricLines.Children.Clear();
-        _playerRows = new TextBlock[lines.Length];
+        _playerRows = new Lyric[lines.Length];
         _playerMiddles = new double[lines.Length];
 
-        var style = (Style)FindResource("LyricRow");
         double width = PlayerLyricBox.Width, top = 0;
         for (int i = 0; i < lines.Length; i++)
         {
             // a line with no words marks a break in the singing
-            var row = new TextBlock { Style = style, Text = lines[i].Text.Length > 0 ? lines[i].Text : "♪", Width = width, Opacity = PlayerLyricDim };
+            var row = new Lyric(lines[i].Text.Length > 0 ? lines[i].Text : "♪")
+            {
+                Width = width,
+                Opacity = PlayerLyricDim,
+                // the words start at the left, so that is the side a line shrinks towards
+                RenderTransformOrigin = new Point(0, 0.5),
+                RenderTransform = new ScaleTransform(PlayerLyricSmall, PlayerLyricSmall),
+            };
             PlayerLyricLines.Children.Add(row);
             row.Measure(new Size(width, double.PositiveInfinity));
             Canvas.SetTop(row, top);
@@ -1020,6 +1042,46 @@ public partial class MainWindow : Window
             top += row.DesiredSize.Height + PlayerLyricGap;
             _playerRows[i] = row;
         }
+    }
+
+    /// <summary>Brings a line forward as it is sung, or sets it back among the others.</summary>
+    void Sing(Lyric row, bool sung, Duration time)
+    {
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        row.BeginAnimation(OpacityProperty, new DoubleAnimation(sung ? 1 : PlayerLyricDim, time));
+        // set back, the whole line is lit evenly again, however far it had been sung
+        row.BeginAnimation(Lyric.UnsungProperty, new DoubleAnimation(sung ? PlayerLyricAhead : 1, time));
+        var size = new DoubleAnimation(sung ? 1 : PlayerLyricSmall, time) { EasingFunction = ease };
+        row.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, size);
+        row.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, size);
+    }
+
+    void Focus(Lyric row, double radius, Duration time)
+    {
+        if (row.Effect is not BlurEffect blur)
+        {
+            if (radius == 0) return;
+            row.Effect = blur = new BlurEffect { Radius = 0 };
+        }
+        var turn = new DoubleAnimation(radius, time);
+        turn.Completed += (_, _) =>
+        {
+            // drop the effect so the line is rendered crisp
+            if (ReferenceEquals(row.Effect, blur) && blur.Radius < 0.01) row.Effect = null;
+        };
+        blur.BeginAnimation(BlurEffect.RadiusProperty, turn);
+    }
+
+    /// <summary>Fills the line being sung with light: from its first letter as it starts to its last as the next one comes in.</summary>
+    void SweepPlayerLyric()
+    {
+        int index = _playerIndex;
+        if (index < 0 || index >= _playerRows.Length) return;
+
+        TimeSpan start = _playerLines[index].Time;
+        TimeSpan end = index + 1 < _playerLines.Length ? _playerLines[index + 1].Time : _media.Duration;
+        double seconds = Math.Clamp((end - start).TotalSeconds, 0.3, PlayerLyricLongest);
+        _playerRows[index].Progress = Math.Clamp((_media.Position + LyricLead - start).TotalSeconds / seconds, 0, 1);
     }
 
     // ───────────────────────── seek bar ─────────────────────────
@@ -1065,6 +1127,8 @@ public partial class MainWindow : Window
         SeekBar.Height = thick;
         SeekBack.CornerRadius = SeekFill.CornerRadius = new CornerRadius(thick / 2);
         SeekFill.Width = Math.Clamp(_seekX.Value, 0, track);
+        // the line being sung is filled on the same frames
+        SweepPlayerLyric();
 
         // while scrubbing the labels read the spot under the pointer
         TimeSpan at = duration * shown;

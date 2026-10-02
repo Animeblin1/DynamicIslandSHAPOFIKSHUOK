@@ -1,9 +1,10 @@
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 
 namespace DynamicIsland;
 
-/// <summary>Soft light rising from the bottom edge of the player: one drifting patch per slice of the spectrum.</summary>
+/// <summary>Soft light rising from the bottom edge of the player: one drifting patch per slice of the spectrum, in the colours of the cover.</summary>
 public sealed class Aura : FrameworkElement
 {
     const int Patches = 4;
@@ -14,36 +15,38 @@ public sealed class Aura : FrameworkElement
     static readonly double[] Anchor = { 0.40, 0.63, 0.15, 0.86 };
     static readonly double[] Speed = { 0.55, 0.43, 0.71, 0.62 };
     static readonly double[] Phase = { 0.0, 2.1, 4.0, 5.3 };
+    // which colour of the cover each patch takes: the two in the middle get the hues that stand out in it,
+    // the outer two the one that stands for the whole
+    static readonly int[] Shade = { 1, 2, 0, 0 };
 
     // alpha along the radius: a bell curve, so no patch shows an edge
     static readonly (double Offset, double Alpha)[] Falloff = { (0, 1), (0.25, 0.7), (0.5, 0.3), (0.75, 0.07), (1, 0) };
 
-    public static readonly DependencyProperty ColorProperty = DependencyProperty.Register(
-        nameof(Color), typeof(Color), typeof(Aura),
-        new FrameworkPropertyMetadata(Colors.White, (d, _) => ((Aura)d).Tint()));
-
-    readonly RadialGradientBrush _brush = new();
+    readonly RadialGradientBrush[] _brushes = new RadialGradientBrush[Patches];
     readonly double[] _levels = new double[Patches];
     double _time;
 
     public Aura()
     {
-        foreach (var (offset, _) in Falloff) _brush.GradientStops.Add(new GradientStop(Colors.Transparent, offset));
-        Tint();
+        for (int p = 0; p < Patches; p++)
+        {
+            _brushes[p] = new RadialGradientBrush();
+            foreach (var (offset, alpha) in Falloff) _brushes[p].GradientStops.Add(new GradientStop(Fade(Colors.White, alpha), offset));
+        }
     }
 
-    public Color Color
+    /// <summary>Turns the light to the colours of another cover; with fewer of them than it takes, they are shared out.</summary>
+    public void Tint(IReadOnlyList<Color> colors, Duration time)
     {
-        get => (Color)GetValue(ColorProperty);
-        set => SetValue(ColorProperty, value);
+        for (int p = 0; p < Patches; p++)
+        {
+            Color c = colors[Shade[p] % colors.Count];
+            for (int i = 0; i < Falloff.Length; i++)
+                _brushes[p].GradientStops[i].BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(Fade(c, Falloff[i].Alpha), time));
+        }
     }
 
-    void Tint()
-    {
-        Color c = Color;
-        for (int i = 0; i < Falloff.Length; i++)
-            _brush.GradientStops[i].Color = Color.FromArgb((byte)(255 * Falloff[i].Alpha), c.R, c.G, c.B);
-    }
+    static Color Fade(Color c, double alpha) => Color.FromArgb((byte)(255 * alpha), c.R, c.G, c.B);
 
     /// <summary>Advances one frame, following the bars of <paramref name="source"/>. Returns false once the light is at rest.</summary>
     public bool Tick(Equalizer source, double t, double dt)
@@ -79,7 +82,7 @@ public sealed class Aura : FrameworkElement
             double x = w * (Anchor[p] + Drift * Math.Sin(_time * Speed[p] + Phase[p]));
             // centred on the bottom edge, so only the upper half of each patch shows
             dc.PushOpacity(0.16 + 0.5 * level);
-            dc.DrawEllipse(_brush, null, new Point(x, h), w * (0.26 + 0.1 * level), h * (0.3 + 0.4 * level));
+            dc.DrawEllipse(_brushes[p], null, new Point(x, h), w * (0.26 + 0.1 * level), h * (0.3 + 0.4 * level));
             dc.Pop();
         }
     }
