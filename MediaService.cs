@@ -32,6 +32,16 @@ sealed class MediaService
     public bool HasTrack => _session != null && Title.Length > 0;
     public TimeSpan Duration => _duration;
 
+    /// <summary>Id of the app that plays, as the session gives it; empty when there is none.</summary>
+    public string Source
+    {
+        get
+        {
+            try { return _session?.SourceAppUserModelId ?? ""; }
+            catch { return ""; }
+        }
+    }
+
     public TimeSpan Position
     {
         get

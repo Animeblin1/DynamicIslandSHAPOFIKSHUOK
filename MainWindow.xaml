@@ -157,7 +157,7 @@
     <Grid x:Name="Root" Width="620" Height="330" Margin="0,8,0,0" Opacity="0"
           HorizontalAlignment="Center" VerticalAlignment="Top"
           MouseLeftButtonDown="Root_MouseLeftButtonDown" MouseLeftButtonUp="Root_MouseLeftButtonUp"
-          MouseRightButtonUp="Root_MouseRightButtonUp" MouseWheel="Root_MouseWheel">
+          MouseRightButtonUp="Root_MouseRightButtonUp" MouseUp="Root_MouseUp" MouseWheel="Root_MouseWheel">
         <Grid.RenderTransform>
             <TranslateTransform x:Name="RootMove"/>
         </Grid.RenderTransform>
@@ -336,7 +336,9 @@
                     <local:Aura x:Name="Glow" Height="176" VerticalAlignment="Bottom" IsHitTestVisible="False"/>
 
                     <Grid Height="64" Margin="20,20,22,0" VerticalAlignment="Top">
-                        <Grid Width="64" Height="64" HorizontalAlignment="Left">
+                        <!-- the cover leads to the app that plays -->
+                        <Grid Width="64" Height="64" HorizontalAlignment="Left" Cursor="Hand"
+                              MouseLeftButtonUp="Art_MouseLeftButtonUp">
                             <Border CornerRadius="16" Background="{StaticResource ArtPlaceholder}">
                                 <TextBlock FontFamily="{StaticResource Icons}" Text="&#xE8D6;" FontSize="26" Foreground="{StaticResource Dim}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>

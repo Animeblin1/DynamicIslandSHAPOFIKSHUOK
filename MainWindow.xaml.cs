@@ -61,6 +61,7 @@ public partial class MainWindow : Window
     static readonly TimeSpan PausedGrace = TimeSpan.FromSeconds(30);
     static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(550); // open panel, pointer gone
     static readonly TimeSpan BubbleLinger = TimeSpan.FromSeconds(2.5); // ...longer when it was opened from the bubble
+    static readonly TimeSpan AwayFor = TimeSpan.FromSeconds(5); // a middle click sends the island off screen for this long
     static readonly CultureInfo Ru = new("ru-RU");
 
     readonly Dictionary<View, FrameworkElement> _views;
@@ -80,7 +81,7 @@ public partial class MainWindow : Window
     readonly Countdown _timer = new();
     readonly Alarm _alarm = new();
     readonly Stopwatch _time = Stopwatch.StartNew();
-    readonly DispatcherTimer _tick, _transientTimer, _collapseTimer;
+    readonly DispatcherTimer _tick, _transientTimer, _collapseTimer, _awayTimer;
     readonly View? _forced;
     readonly double _forcedTimer;
 
@@ -88,6 +89,7 @@ public partial class MainWindow : Window
     View? _transient;
     Panel _panel;
     bool _hover, _pressed, _hidden, _animating, _eqRunning, _seekRunning, _scrubbing;
+    bool _away; // sent off screen by a middle click
     bool _bubbleHover, _bubblePressed;
     bool _ringing; // the countdown ran out and the alarm is still going
     int _minutes = 25, _timerShown = -1;
@@ -186,6 +188,13 @@ public partial class MainWindow : Window
             if (_hover) return;
             _panel = Panel.None;
             UpdateView();
+        };
+        _awayTimer = new DispatcherTimer { Interval = AwayFor };
+        _awayTimer.Tick += (_, _) =>
+        {
+            _awayTimer.Stop();
+            _away = false;
+            SetTargets();
         };
 
         Loaded += OnLoaded;
@@ -288,7 +297,7 @@ public partial class MainWindow : Window
     void ShowTransient(View view, double seconds, bool force = false)
     {
         if (force) _panel = Panel.None;
-        else if (_panel != Panel.None || _hidden) return;
+        else if (_panel != Panel.None || _hidden || _away) return;
         _transient = view;
         _transientTimer.Stop();
         _transientTimer.Interval = TimeSpan.FromSeconds(seconds);
@@ -313,7 +322,7 @@ public partial class MainWindow : Window
         // the timer splits off whenever the compact pill is showing something else
         _split.Target = _timer.Active && compact && _current != View.Timer ? 1 : 0;
         // a ringing timer shows itself even over a fullscreen app
-        _offset.Target = _hidden && !_ringing ? -(d.H + 30) : 0;
+        _offset.Target = (_hidden || _away) && !_ringing ? -(d.H + 30) : 0;
         _scale.Target = _pressed ? (compact ? 0.93 : 0.975) : _hover && compact ? 1.07 : 1;
         _bubbleScale.Target = _bubblePressed ? 0.93 : _bubbleHover ? 1.07 : 1;
         Animate();
@@ -1063,6 +1072,12 @@ public partial class MainWindow : Window
     void Play_Click(object sender, RoutedEventArgs e) => _media.TogglePlay();
     void Next_Click(object sender, RoutedEventArgs e) => _media.Next();
 
+    // not handled: the click goes on to the pill and closes the player, out of the way of the app it has just brought up
+    void Art_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_pressed) SourceApp.Show(_media.Source, _media.Title);
+    }
+
     double SeekFraction(MouseEventArgs e) => Math.Clamp(e.GetPosition(SeekArea).X / SeekArea.ActualWidth, 0, 1);
 
     void Seek_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1148,6 +1163,19 @@ public partial class MainWindow : Window
         Open(_panel == Panel.Menu ? Panel.None : Panel.Menu);
         UpdateSwitches(false);
         UpdateView();
+    }
+
+    // a middle click gets the island out of the way for a few seconds: whatever was open closes, and it comes back compact
+    void Root_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Middle) return;
+        e.Handled = true;
+        Open(Panel.None);
+        _away = true;
+        _awayTimer.Stop();
+        _awayTimer.Start();
+        UpdateView();
+        SetTargets();
     }
 
     void Open(Panel panel)
