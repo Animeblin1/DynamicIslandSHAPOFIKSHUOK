@@ -3,7 +3,11 @@ using System.Windows.Media;
 
 namespace DynamicIsland;
 
-public enum Glyph { Mute, Quiet, Mid, Loud, Headphones, Speaker, Vpn, Offline, Wifi, Wired, Bell, Note, Battery, Minus, Plus, Chevron }
+public enum Glyph
+{
+    Mute, Quiet, Mid, Loud, Headphones, Speaker, Vpn, Offline, Wifi, Wired, Bell, Note, Battery, Minus, Plus, Chevron, Back,
+    Clock, Gear, Lines, Sparkle, Rim, Expand, Windows, Power,
+}
 
 /// <summary>
 /// The island's own icons: filled shapes with rounded corners on a 24-unit grid, in the manner of the
@@ -54,6 +58,20 @@ public sealed class Icon : FrameworkElement
         [Glyph.Minus] = new(Lines: "M5.5,12 H18.5", Line: 2.4),
         [Glyph.Plus] = new(Lines: "M5.5,12 H18.5 M12,5.5 V18.5", Line: 2.4),
         [Glyph.Chevron] = new(Lines: "M9,5 L16,12 L9,19", Line: 2.6),
+        [Glyph.Back] = new(Lines: "M15,5 L8,12 L15,19", Line: 2.6),
+
+        // the rows of the menu
+        [Glyph.Clock] = new(Lines: "M12,4 A8,8 0 1 0 12,20 A8,8 0 1 0 12,4 Z M12,8 V12.2 L14.9,14"),
+        // a disc, eight teeth across it and the hole in the middle
+        [Glyph.Gear] = new("M12,5.8 A6.2,6.2 0 1 0 12,18.2 A6.2,6.2 0 1 0 12,5.8 Z",
+            "M12,3.8 V20.2 M3.8,12 H20.2 M6.2,6.2 L17.8,17.8 M17.8,6.2 L6.2,17.8", 3.2, "M12,12 L12.01,12", 5.6),
+        [Glyph.Lines] = new(Lines: "M4.5,7 H19.5 M4.5,12 H19.5 M4.5,17 H13", Line: 2.2),
+        [Glyph.Sparkle] = new("M12,3.4 C12.6,8.4 15.6,11.4 20.6,12 C15.6,12.6 12.6,15.6 12,20.6 C11.4,15.6 8.4,12.6 3.4,12 C8.4,11.4 11.4,8.4 12,3.4 Z"),
+        // the island itself, as an outline
+        [Glyph.Rim] = new(Lines: "M8,7.5 H16 A4.5,4.5 0 0 1 16,16.5 H8 A4.5,4.5 0 0 1 8,7.5 Z", Line: 2.2),
+        [Glyph.Expand] = new(Lines: "M4.5,9.5 V4.5 H9.5 M14.5,4.5 H19.5 V9.5 M19.5,14.5 V19.5 H14.5 M9.5,19.5 H4.5 V14.5", Line: 2.2),
+        [Glyph.Windows] = new("M4.6,4.6 H10.4 V10.4 H4.6 Z M13.6,4.6 H19.4 V10.4 H13.6 Z M4.6,13.6 H10.4 V19.4 H4.6 Z M13.6,13.6 H19.4 V19.4 H13.6 Z"),
+        [Glyph.Power] = new(Lines: "M12,3.8 V11.4 M7.4,6.9 A7.2,7.2 0 1 0 16.6,6.9", Line: 2.2),
     };
 
     static readonly Dictionary<Glyph, Geometry> Shapes = new();

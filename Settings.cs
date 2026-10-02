@@ -9,6 +9,7 @@ static class Settings
 
     static bool _lyrics = Read(nameof(Lyrics)), _lyricEffects = Read(nameof(LyricEffects));
     static bool _network = Read(nameof(Network)), _hideFullscreen = Read(nameof(HideFullscreen));
+    static bool _rim = Read(nameof(Rim));
 
     /// <summary>Look the lyrics of the track up and show them. Off: nothing is sent to LRCLIB.</summary>
     public static bool Lyrics
@@ -25,6 +26,13 @@ static class Settings
     {
         get => _lyricEffects;
         set => Write(nameof(LyricEffects), _lyricEffects = value);
+    }
+
+    /// <summary>While music plays, the island's light edge takes the colour of the cover. Off: it stays white.</summary>
+    public static bool Rim
+    {
+        get => _rim;
+        set => Write(nameof(Rim), _rim = value);
     }
 
     /// <summary>Notices about Wi-Fi, Ethernet and VPN.</summary>

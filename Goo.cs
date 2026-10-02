@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 
 namespace DynamicIsland;
 
@@ -15,10 +16,24 @@ public sealed class Goo : FrameworkElement
     const double Handle = 2.4;     // how long the neck's curves keep to the direction they leave an end in
     const double Tolerance = 0.02; // of the merged outline
 
-    static readonly Pen Edge = MakeEdge();
+    static readonly Color Plain = Color.FromArgb(0x20, 0xFF, 0xFF, 0xFF);
+    const byte Tinted = 0x8C;      // alpha of the edge while it takes a colour: one hue needs more than white to show
+
+    readonly SolidColorBrush _rim = new(Plain);
+    readonly Pen _edge;
 
     Rect _pill = Rect.Empty, _bubble = Rect.Empty;
     double _radius;
+
+    public Goo() => _edge = new Pen(_rim, 2 * Rim) { LineJoin = PenLineJoin.Round };
+
+    /// <summary>Turns the light edge to a colour, or back to its own faint white with null.</summary>
+    public void Tint(Color? colour, Duration time)
+    {
+        Color to = colour is { } c ? Color.FromArgb(Tinted, c.R, c.G, c.B) : Plain;
+        // the brush is already in the picture, so nothing is drawn again
+        _rim.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(to, time));
+    }
 
     /// <summary>Where the two are, in this element's own coordinates. An empty bubble is one tucked away out of sight.</summary>
     public void Shape(Rect pill, double radius, Rect bubble)
@@ -56,7 +71,7 @@ public sealed class Goo : FrameworkElement
     }
 
     // the rim is the outer half of a line along the edge: it lightens what is behind the island, not its black
-    static void Draw(DrawingContext dc, Geometry body)
+    void Draw(DrawingContext dc, Geometry body)
     {
         Rect around = body.Bounds;
         around.Inflate(2 * Rim, 2 * Rim);
@@ -65,7 +80,7 @@ public sealed class Goo : FrameworkElement
         outside.Children.Add(body);
 
         dc.PushClip(outside);
-        dc.DrawGeometry(null, Edge, body);
+        dc.DrawGeometry(null, _edge, body);
         dc.Pop();
         dc.DrawGeometry(Brushes.Black, null, body);
     }
@@ -118,11 +133,4 @@ public sealed class Goo : FrameworkElement
 
     static Point On(Point centre, double angle, double radius) =>
         new(centre.X + radius * Math.Cos(angle), centre.Y + radius * Math.Sin(angle));
-
-    static Pen MakeEdge()
-    {
-        var pen = new Pen(new SolidColorBrush(Color.FromArgb(0x20, 0xFF, 0xFF, 0xFF)), 2 * Rim) { LineJoin = PenLineJoin.Round };
-        pen.Freeze();
-        return pen;
-    }
 }

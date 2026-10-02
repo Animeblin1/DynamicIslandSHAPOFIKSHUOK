@@ -14,10 +14,10 @@ namespace DynamicIsland;
 
 public partial class MainWindow : Window
 {
-    enum View { Idle, Media, Timer, Volume, Charge, Toast, Notice, MediaBig, IdleBig, TimerBig, TimerSet, Menu }
+    enum View { Idle, Media, Timer, Volume, Charge, Toast, Notice, MediaBig, IdleBig, TimerBig, TimerSet, Menu, Settings }
 
     /// <summary>What a click has opened; None is the compact pill.</summary>
-    enum Panel { None, Player, Timer, TimerSet, Menu }
+    enum Panel { None, Player, Timer, TimerSet, Menu, Settings }
 
     readonly record struct Dims(double W, double H, double R);
 
@@ -34,7 +34,8 @@ public partial class MainWindow : Window
         [View.IdleBig] = new(320, 124, 38),
         [View.TimerBig] = new(330, 92, 40),
         [View.TimerSet] = new(300, 190, 38),
-        [View.Menu] = new(300, 328, 34),
+        [View.Menu] = new(300, 168, 34),
+        [View.Settings] = new(320, 294, 34),
     };
 
     const double HostWidth = 620;
@@ -42,7 +43,10 @@ public partial class MainWindow : Window
     const int MaxMinutes = 99; // the countdown always reads mm:ss
     const int HeadsetEvery = 300; // ticks between looks at the headphones' charge: it moves slowly
     const int HeadsetLow = 20, HeadsetCritical = 10; // percent: passing each on the way down is worth a warning
+    const int TimerLast = 10; // seconds: the end of a countdown turns red and beats
+    const double SkipMemory = 3; // seconds a press of "previous" stays the reason for the cover that comes next
     const double VolumeTrack = 162;
+    const double VolumePush = 7; // how far the bar gives when the volume is asked past an end of it
     const double SeekTrack = 260;
     const double SeekThin = 6, SeekHover = 9, SeekDrag = 12; // bar thickness: resting, under the pointer, while scrubbing
     const double EqFrame = 0.012; // seconds: caps the bars at 60–80 fps on high-refresh displays
@@ -66,6 +70,7 @@ public partial class MainWindow : Window
     static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(550); // open panel, pointer gone
     static readonly TimeSpan BubbleLinger = TimeSpan.FromSeconds(2.5); // ...longer when it was opened from the bubble
     static readonly TimeSpan AwayFor = TimeSpan.FromSeconds(5); // a middle click sends the island off screen for this long
+    static readonly TimeSpan PushFor = TimeSpan.FromMilliseconds(140); // the bar stays stretched this long after the last push
     static readonly CultureInfo Ru = new("ru-RU");
 
     readonly Dictionary<View, FrameworkElement> _views;
@@ -73,9 +78,11 @@ public partial class MainWindow : Window
     readonly Spring _seekX = new(0), _seekH = new(SeekThin);
     readonly Spring _split = new(0); // 0: the bubble is tucked behind the pill, 1: it stands on its own
     readonly Spring _bubbleScale = new(1); // the bubble answers the pointer by itself, not along with the pill
+    readonly Spring _push = new(0); // px the volume bar is stretched past its end
     readonly RectangleGeometry _clip = new();
-    readonly ImageBrush _art = new() { Stretch = Stretch.UniformToFill };
     readonly SolidColorBrush _accent = new(Colors.White);
+    readonly SolidColorBrush _timerTint; // everything a countdown shows is drawn with it: orange, red at the end
+    readonly ScaleTransform _beat = new(1, 1), _beatBig = new(1, 1); // the rings and the big digits, on each of the last seconds
     readonly AudioService _audio = new();
     readonly SpectrumService _spectrum = new();
     readonly float[] _bands = new float[SpectrumService.Bands];
@@ -85,7 +92,7 @@ public partial class MainWindow : Window
     readonly Countdown _timer = new();
     readonly Alarm _alarm = new();
     readonly Stopwatch _time = Stopwatch.StartNew();
-    readonly DispatcherTimer _tick, _transientTimer, _collapseTimer, _awayTimer;
+    readonly DispatcherTimer _tick, _transientTimer, _collapseTimer, _awayTimer, _pushTimer;
     readonly View? _forced;
     readonly double _forcedTimer;
 
@@ -96,17 +103,24 @@ public partial class MainWindow : Window
     bool _away; // sent off screen by a middle click
     bool _bubbleHover, _bubblePressed;
     bool _ringing; // the countdown ran out and the alarm is still going
+    bool _urgent; // ...and it is in its last seconds
+    bool _playShown, _timerPauseShown = true; // which of the two icons each button shows
     int _minutes = 25, _timerShown = -1;
     double _lastFrame, _eqFrame, _seekFrame;
     double _scrub, _scrubUntil; // fraction under the pointer; it stays on the bar until the player reports the jump
     (int At, int Total) _seekLabel = (-1, -1);
     int _ticks;
     float _lastVolume = -1;
+    int _lastPercent;
     bool _lastMuted, _lastPlugged, _powerKnown;
     int _headset = -1; // charge of the output device in percent; -1: it reports none
     Guid _headsetId; // ...and the device that number belongs to
     string _lastTitle = "";
     DateTime _lastPlaying = DateTime.MinValue;
+    ImageSource? _cover;
+    int _skip = 1; // the way the last skip went...
+    double _skipAt = -SkipMemory; // ...and when
+    Color? _rim; // colour the island's edge has taken from the cover
     LyricsService.Line[] _lyricLines = [];
     int _lyricIndex = -1;
     string _lyricTitle = "";
@@ -119,6 +133,7 @@ public partial class MainWindow : Window
     int _playerIndex = -1;
     bool _playerRoom; // the expanded player has made room for lyrics
     IntPtr _hwnd;
+    int _shellMessage;
 
     public MainWindow()
     {
@@ -138,6 +153,7 @@ public partial class MainWindow : Window
             [View.TimerBig] = TimerBigView,
             [View.TimerSet] = TimerSetView,
             [View.Menu] = MenuView,
+            [View.Settings] = SettingsView,
         };
         foreach (FrameworkElement v in _views.Values)
         {
@@ -150,8 +166,24 @@ public partial class MainWindow : Window
         IdleView.Opacity = 1;
 
         Host.Clip = _clip;
-        ArtSmall.Background = ArtToast.Background = ArtBig.Background = _art;
         EqSmall.Fill = EqToast.Fill = EqBig.Fill = _accent;
+
+        _timerTint = new SolidColorBrush(((SolidColorBrush)FindResource("Orange")).Color);
+        TimerRing.Stroke = BubbleRing.Stroke = _timerTint;
+        TimerText.Foreground = BubbleText.Foreground = BigTimer.Foreground = BigTimerLabel.Foreground = MenuTimer.Foreground = _timerTint;
+        TimerDisc.Fill = _timerTint;
+        TimerPauseIcon.Fill = TimerPauseIcon.Stroke = TimerPlayIcon.Fill = TimerPlayIcon.Stroke = _timerTint;
+        TimerRing.RenderTransformOrigin = BubbleRing.RenderTransformOrigin = new Point(0.5, 0.5);
+        TimerRing.RenderTransform = BubbleRing.RenderTransform = _beat;
+        // the digits are set against the right edge, so that is where they swell from
+        BigTimer.RenderTransformOrigin = new Point(1, 0.5);
+        BigTimer.RenderTransform = _beatBig;
+        foreach (FrameworkElement icon in new FrameworkElement[] { PlayIcon, PauseIcon, TimerPlayIcon, TimerPauseIcon })
+        {
+            icon.RenderTransformOrigin = new Point(0.5, 0.5);
+            icon.RenderTransform = new ScaleTransform(1, 1);
+        }
+
         _lyric = LyricA;
         _scale.Tune(320, 20);
         _offset.Tune(260, 26);
@@ -160,6 +192,7 @@ public partial class MainWindow : Window
         _seekH.Tune(420, 26);
         _split.Tune(140, 17); // unhurried: the neck between the two has to be seen stretching and snapping
         _bubbleScale.Tune(320, 20);
+        _push.Tune(420, 18); // loose enough to wobble once it is let go
 
         // debug aid: `DynamicIsland.exe --view MediaBig` pins one state, `--timer 90` starts a 90 s countdown
         string[] args = Environment.GetCommandLineArgs();
@@ -200,6 +233,13 @@ public partial class MainWindow : Window
             _away = false;
             SetTargets();
         };
+        _pushTimer = new DispatcherTimer { Interval = PushFor };
+        _pushTimer.Tick += (_, _) =>
+        {
+            _pushTimer.Stop();
+            _push.Target = 0;
+            Animate();
+        };
 
         Loaded += OnLoaded;
     }
@@ -212,6 +252,24 @@ public partial class MainWindow : Window
         long ex = Native.GetWindowLongPtr(_hwnd, Native.GWL_EXSTYLE).ToInt64();
         Native.SetWindowLongPtr(_hwnd, Native.GWL_EXSTYLE,
             new IntPtr(ex | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE));
+
+        _shellMessage = (int)Native.RegisterWindowMessage("SHELLHOOK");
+        if (Native.RegisterShellHookWindow(_hwnd)) HwndSource.FromHwnd(_hwnd).AddHook(OnShellMessage);
+    }
+
+    // the volume and track keys pass through the shell on their way to the system: the volume itself is polled,
+    // but a key pressed at the end of its range changes nothing there, and nothing else says which way a track was skipped
+    IntPtr OnShellMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != _shellMessage || wParam.ToInt64() != Native.HSHELL_APPCOMMAND) return IntPtr.Zero;
+        switch (Native.AppCommand(lParam))
+        {
+            case Native.APPCOMMAND_VOLUME_UP when VolumeAtEnd(true): PushVolume(true); break;
+            case Native.APPCOMMAND_VOLUME_DOWN when VolumeAtEnd(false): PushVolume(false); break;
+            case Native.APPCOMMAND_MEDIA_NEXTTRACK: Skipped(1); break;
+            case Native.APPCOMMAND_MEDIA_PREVIOUSTRACK: Skipped(-1); break;
+        }
+        return IntPtr.Zero;
     }
 
     async void OnLoaded(object sender, RoutedEventArgs e)
@@ -254,6 +312,7 @@ public partial class MainWindow : Window
         View target = _forced ?? _panel switch
         {
             Panel.Menu => View.Menu,
+            Panel.Settings => View.Settings,
             Panel.TimerSet => View.TimerSet,
             Panel.Timer when _timer.Active => View.TimerBig,
             Panel.Timer or Panel.Player => _media.HasTrack ? View.MediaBig : View.IdleBig,
@@ -264,6 +323,7 @@ public partial class MainWindow : Window
         if (target == _current)
         {
             SyncEq();
+            SyncRim();
             return;
         }
 
@@ -281,8 +341,19 @@ public partial class MainWindow : Window
         SetTargets();
 
         SyncEq();
+        SyncRim();
         if (target == View.MediaBig) StartSeek();
         if (target == View.Media) UpdateLyric(true);
+    }
+
+    // the light edge takes the colour of the cover for as long as the island is about its music
+    void SyncRim()
+    {
+        bool music = _media.HasTrack && _cover != null && (MediaActive || _current == View.MediaBig);
+        Color? tint = Settings.Rim && music ? _media.Accent : null;
+        if (tint == _rim) return;
+        _rim = tint;
+        Body.Tint(tint, Ms(450));
     }
 
     bool EqVisible => _current is View.Media or View.Toast or View.MediaBig;
@@ -356,6 +427,7 @@ public partial class MainWindow : Window
         moving |= _offset.Advance(dt);
         moving |= _split.Advance(dt);
         moving |= _bubbleScale.Advance(dt);
+        moving |= _push.Advance(dt);
         ApplyShape();
 
         if (!moving)
@@ -388,6 +460,11 @@ public partial class MainWindow : Window
 
         _clip.Rect = pill;
         _clip.RadiusX = _clip.RadiusY = r;
+
+        // stretched past its end, the volume bar gets longer and thinner, like rubber
+        double push = Math.Max(_push.Value, -VolumePush);
+        VolStretch.ScaleX = 1 + push / VolumeTrack;
+        VolStretch.ScaleY = 1 - push / VolumePush * 0.22;
 
         double scale = Math.Max(_scale.Value, 0.01);
         IslandScale.ScaleX = IslandScale.ScaleY = scale;
@@ -551,6 +628,8 @@ public partial class MainWindow : Window
         _lastMuted = muted;
 
         int percent = (int)Math.Round(level * 100);
+        VolText.Down = percent < _lastPercent; // the digits roll the way the volume goes
+        _lastPercent = percent;
         VolIcon.Kind = InfoVolIcon.Kind = muted || percent == 0 ? Glyph.Mute : level < 0.34 ? Glyph.Quiet : level < 0.67 ? Glyph.Mid : Glyph.Loud;
         VolText.Text = percent.ToString();
         InfoVol.Text = muted ? "выкл" : percent + "%";
@@ -560,6 +639,21 @@ public partial class MainWindow : Window
         });
 
         if (!first) ShowTransient(View.Volume, 1.6);
+    }
+
+    /// <summary>Nowhere further for the volume to go that way.</summary>
+    bool VolumeAtEnd(bool up) => _lastVolume >= 0 && (up ? !_lastMuted && _lastVolume >= 0.999f : _lastVolume <= 0.001f);
+
+    /// <summary>The volume is asked past an end of its range: the bar gives that way and springs back once the asking stops.</summary>
+    void PushVolume(bool up)
+    {
+        // it holds on to its other end
+        VolTrack.RenderTransformOrigin = new Point(up ? 0 : 1, 0.5);
+        _push.Target = VolumePush;
+        _pushTimer.Stop();
+        _pushTimer.Start();
+        ShowTransient(View.Volume, 1.6);
+        Animate();
     }
 
     void PollPower()
@@ -691,6 +785,7 @@ public partial class MainWindow : Window
     {
         _timer.Stop();
         MenuTimer.Text = "";
+        Urgent(false);
     }
 
     static string Span(TimeSpan t) =>
@@ -700,8 +795,11 @@ public partial class MainWindow : Window
     void SyncTimer()
     {
         bool running = _timer.Running;
-        TimerPauseIcon.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
-        TimerPlayIcon.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        if (running != _timerPauseShown)
+        {
+            _timerPauseShown = running;
+            Trade(running ? TimerPlayIcon : TimerPauseIcon, running ? TimerPauseIcon : TimerPlayIcon, TimerBigView.IsVisible);
+        }
         TimerText.Opacity = BubbleText.Opacity = BigTimer.Opacity = running ? 1 : 0.5;
         _timerShown = -1;
         UpdateTimer();
@@ -725,6 +823,36 @@ public partial class MainWindow : Window
         _timerShown = seconds;
         // minutes are not rolled over into hours: past the hour it reads 75:00, the way it was set, and still fits the bubble
         TimerText.Text = BubbleText.Text = BigTimer.Text = MenuTimer.Text = $"{seconds / 60}:{seconds % 60:00}";
+
+        Urgent(seconds <= TimerLast);
+        if (_urgent && _timer.Running) Beat();
+    }
+
+    /// <summary>The last seconds of a countdown are red; the rest of it, and the next one, orange.</summary>
+    void Urgent(bool on)
+    {
+        if (on == _urgent) return;
+        _urgent = on;
+        Color to = ((SolidColorBrush)FindResource(on ? "Red" : "Orange")).Color;
+        _timerTint.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(to, Ms(300)));
+    }
+
+    // once a second: the ring swells and settles, the big digits give a little with it
+    void Beat()
+    {
+        Swell(_beat, 1.24);
+        Swell(_beatBig, 1.05);
+    }
+
+    static void Swell(ScaleTransform scale, double to)
+    {
+        var beat = new DoubleAnimationUsingKeyFrames { Duration = Ms(460) };
+        beat.KeyFrames.Add(new EasingDoubleKeyFrame(to, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(110)),
+            new CubicEase { EasingMode = EasingMode.EaseOut }));
+        beat.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(460)),
+            new SineEase { EasingMode = EasingMode.EaseInOut }));
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, beat);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, beat);
     }
 
     void TimerDone()
@@ -834,17 +962,24 @@ public partial class MainWindow : Window
         TitleBig.Text = ToastTitle.Text = title;
         ArtistBig.Text = ToastArtist.Text = string.IsNullOrWhiteSpace(_media.Artist) ? "Неизвестный исполнитель" : _media.Artist;
 
-        if (!ReferenceEquals(_art.ImageSource, _media.Art))
+        if (!ReferenceEquals(_cover, _media.Art))
         {
-            _art.ImageSource = _media.Art;
-            _art.BeginAnimation(Brush.OpacityProperty, new DoubleAnimation(0, 1, Ms(350)));
+            _cover = _media.Art;
+            // the covers cross the way the playlist went: back only when "previous" has just been asked for
+            int heading = _time.Elapsed.TotalSeconds - _skipAt < SkipMemory ? _skip : 1;
+            ArtSmall.Show(_cover, heading);
+            ArtToast.Show(_cover, heading);
+            ArtBig.Show(_cover, heading);
             var tint = new ColorAnimation(_media.Accent, Ms(450));
             _accent.BeginAnimation(SolidColorBrush.ColorProperty, tint);
             Glow.Tint(_media.Palette, tint.Duration);
         }
 
-        PlayIcon.Visibility = _media.IsPlaying ? Visibility.Collapsed : Visibility.Visible;
-        PauseIcon.Visibility = _media.IsPlaying ? Visibility.Visible : Visibility.Collapsed;
+        if (_media.IsPlaying != _playShown)
+        {
+            _playShown = _media.IsPlaying;
+            Trade(_playShown ? PlayIcon : PauseIcon, _playShown ? PauseIcon : PlayIcon, MediaBigView.IsVisible);
+        }
         if (_media.IsPlaying) _lastPlaying = DateTime.UtcNow;
 
         bool newTrack = title.Length > 0 && title != _lastTitle;
@@ -853,6 +988,51 @@ public partial class MainWindow : Window
         TrackLyrics();
         UpdateView();
         UpdateLyric();
+    }
+
+    /// <summary>Two icons share one spot: the one on show shrinks away into a blur as the other grows into focus.</summary>
+    static void Trade(FrameworkElement leave, FrameworkElement enter, bool animate)
+    {
+        Duration quick = Ms(animate ? 150 : 0), slow = Ms(animate ? 360 : 0);
+
+        var shrink = new DoubleAnimation(0.5, quick) { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn } };
+        leave.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, shrink);
+        leave.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, shrink);
+        leave.BeginAnimation(OpacityProperty, new DoubleAnimation(0, quick));
+
+        // a little past its size and back: the button answers the press
+        var grow = new DoubleAnimation(0.5, 1, slow) { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.6 } };
+        enter.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+        enter.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
+        enter.BeginAnimation(OpacityProperty, new DoubleAnimation(1, Ms(animate ? 200 : 0)));
+
+        leave.Effect = enter.Effect = null;
+        if (!animate) return;
+
+        var blurOut = new BlurEffect { Radius = 0 };
+        leave.Effect = blurOut;
+        var soften = new DoubleAnimation(6, quick);
+        soften.Completed += (_, _) =>
+        {
+            if (ReferenceEquals(leave.Effect, blurOut)) leave.Effect = null;
+        };
+        blurOut.BeginAnimation(BlurEffect.RadiusProperty, soften);
+
+        var blurIn = new BlurEffect { Radius = 6 };
+        enter.Effect = blurIn;
+        var sharpen = new DoubleAnimation(0, Ms(240));
+        sharpen.Completed += (_, _) =>
+        {
+            // drop the effect so the icon is rendered crisp again
+            if (ReferenceEquals(enter.Effect, blurIn)) enter.Effect = null;
+        };
+        blurIn.BeginAnimation(BlurEffect.RadiusProperty, sharpen);
+    }
+
+    void Skipped(int direction)
+    {
+        _skip = direction;
+        _skipAt = _time.Elapsed.TotalSeconds;
     }
 
     // switched off in the menu, the lyrics are not even looked up
@@ -1144,9 +1324,19 @@ public partial class MainWindow : Window
     static string Format(TimeSpan t) =>
         t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss");
 
-    void Prev_Click(object sender, RoutedEventArgs e) => _media.Previous();
     void Play_Click(object sender, RoutedEventArgs e) => _media.TogglePlay();
-    void Next_Click(object sender, RoutedEventArgs e) => _media.Next();
+
+    void Prev_Click(object sender, RoutedEventArgs e)
+    {
+        Skipped(-1);
+        _media.Previous();
+    }
+
+    void Next_Click(object sender, RoutedEventArgs e)
+    {
+        Skipped(1);
+        _media.Next();
+    }
 
     // not handled: the click goes on to the pill and closes the player, out of the way of the app it has just brought up
     void Art_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -1236,6 +1426,7 @@ public partial class MainWindow : Window
 
     void Root_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
     {
+        // from the settings that is a step back, to the menu they belong to
         Open(_panel == Panel.Menu ? Panel.None : Panel.Menu);
         UpdateSwitches(false);
         UpdateView();
@@ -1264,12 +1455,26 @@ public partial class MainWindow : Window
 
     void Root_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (_current == View.TimerSet) SetMinutes(_minutes + (e.Delta > 0 ? 1 : -1));
-        else _audio.Nudge(e.Delta > 0 ? 0.02f : -0.02f);
+        bool up = e.Delta > 0;
+        if (_current == View.TimerSet) SetMinutes(_minutes + (up ? 1 : -1));
+        else if (VolumeAtEnd(up)) PushVolume(up);
+        else _audio.Nudge(up ? 0.02f : -0.02f);
         e.Handled = true;
     }
 
     // ───────────────────────── menu ─────────────────────────
+
+    void SettingsRow_Click(object sender, RoutedEventArgs e)
+    {
+        _panel = Panel.Settings;
+        UpdateView();
+    }
+
+    void SettingsBack_Click(object sender, RoutedEventArgs e)
+    {
+        _panel = Panel.Menu;
+        UpdateView();
+    }
 
     void Autostart_Click(object sender, RoutedEventArgs e)
     {
@@ -1294,6 +1499,13 @@ public partial class MainWindow : Window
         _playerLines = [];
     }
 
+    void Rim_Click(object sender, RoutedEventArgs e)
+    {
+        Settings.Rim = !Settings.Rim;
+        UpdateSwitches(true);
+        SyncRim();
+    }
+
     void Network_Click(object sender, RoutedEventArgs e)
     {
         Settings.Network = !Settings.Network;
@@ -1311,6 +1523,7 @@ public partial class MainWindow : Window
     {
         LyricsSwitch.Set(Settings.Lyrics, animate);
         LyricEffectsSwitch.Set(Settings.LyricEffects, animate);
+        RimSwitch.Set(Settings.Rim, animate);
         NetworkSwitch.Set(Settings.Network, animate);
         FullscreenSwitch.Set(Settings.HideFullscreen, animate);
         AutostartSwitch.Set(Autostart.Enabled, animate);

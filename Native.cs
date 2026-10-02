@@ -52,6 +52,20 @@ static class Native
     [DllImport("kernel32.dll")]
     static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
 
+    /// <summary>What the shell tells the windows that ask for it: a key nobody handled is among it.</summary>
+    public const int HSHELL_APPCOMMAND = 12;
+    public const int APPCOMMAND_VOLUME_DOWN = 9, APPCOMMAND_VOLUME_UP = 10;
+    public const int APPCOMMAND_MEDIA_NEXTTRACK = 11, APPCOMMAND_MEDIA_PREVIOUSTRACK = 12;
+
+    [DllImport("user32.dll")]
+    public static extern bool RegisterShellHookWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern uint RegisterWindowMessage(string name);
+
+    /// <summary>The key behind a shell notice of <see cref="HSHELL_APPCOMMAND"/>.</summary>
+    public static int AppCommand(IntPtr lParam) => (int)((lParam.ToInt64() >> 16) & 0xFFF);
+
     public static void KeepOnTop(IntPtr hwnd) =>
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
