@@ -719,7 +719,8 @@ public partial class MainWindow : Window
         int seconds = (int)Math.Ceiling(left.TotalSeconds);
         if (seconds == _timerShown) return;
         _timerShown = seconds;
-        TimerText.Text = BubbleText.Text = BigTimer.Text = MenuTimer.Text = Format(TimeSpan.FromSeconds(seconds));
+        // minutes are not rolled over into hours: past the hour it reads 75:00, the way it was set, and still fits the bubble
+        TimerText.Text = BubbleText.Text = BigTimer.Text = MenuTimer.Text = $"{seconds / 60}:{seconds % 60:00}";
     }
 
     void TimerDone()
