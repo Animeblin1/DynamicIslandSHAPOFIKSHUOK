@@ -85,8 +85,8 @@
             </Setter>
         </Style>
 
-        <!-- menu row: the highlight fades in under the pointer and deepens on press; two layers, so the one
-             fading out never fights the other -->
+        <!-- menu row: nothing but its content and a place to click. The highlight is the list's (RowList),
+             one for all the rows -->
         <Style x:Key="RowButton" TargetType="Button">
             <Setter Property="Focusable" Value="False"/>
             <Setter Property="Foreground" Value="White"/>
@@ -96,47 +96,9 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Grid>
-                            <Border x:Name="Shine" CornerRadius="12" Background="White" Opacity="0"/>
-                            <Border x:Name="Press" CornerRadius="12" Background="White" Opacity="0"/>
-                            <Border Padding="12,0">
-                                <ContentPresenter VerticalAlignment="Center"/>
-                            </Border>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="Shine" Storyboard.TargetProperty="Opacity" To="0.12" Duration="0:0:0.12"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                                <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="Shine" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.3"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.ExitActions>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="Press" Storyboard.TargetProperty="Opacity" To="0.09" Duration="0:0:0.08"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                                <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="Press" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.3"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.ExitActions>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
+                        <Border Background="Transparent" Padding="12,0">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -547,7 +509,7 @@
 
                 <!-- right-click menu -->
                 <Grid x:Name="MenuView" Width="300" Height="168" HorizontalAlignment="Center" VerticalAlignment="Top">
-                    <StackPanel Margin="10,14,10,0">
+                    <local:RowList Margin="10,14,10,0">
                         <TextBlock Text="DYNAMIC ISLAND" FontSize="10.5" FontWeight="SemiBold" Foreground="#66FFFFFF"
                                    Margin="12,0,0,6"/>
                         <Button Style="{StaticResource RowButton}" Click="TimerRow_Click">
@@ -578,12 +540,12 @@
                                 <TextBlock Text="Закрыть остров" Foreground="{StaticResource Red}" Margin="29,0,0,0" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
-                    </StackPanel>
+                    </local:RowList>
                 </Grid>
 
                 <!-- its second page: the switches. The heading leads back -->
                 <Grid x:Name="SettingsView" Width="320" Height="294" HorizontalAlignment="Center" VerticalAlignment="Top">
-                    <StackPanel Margin="10,8,10,0">
+                    <local:RowList Margin="10,8,10,0">
                         <Button Style="{StaticResource RowButton}" Height="32" Margin="0,0,0,2" Click="SettingsBack_Click">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <local:Icon Kind="Back" Width="10" Height="10" Fill="#66FFFFFF" VerticalAlignment="Center"/>
@@ -639,7 +601,7 @@
                                 <local:Toggle x:Name="AutostartSwitch" Width="38" Height="22" HorizontalAlignment="Right"/>
                             </Grid>
                         </Button>
-                    </StackPanel>
+                    </local:RowList>
                 </Grid>
             </Grid>
         </Grid>
