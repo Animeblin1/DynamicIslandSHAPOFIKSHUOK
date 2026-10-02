@@ -52,6 +52,14 @@ static class Native
     [DllImport("kernel32.dll")]
     static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
 
+    [DllImport("user32.dll")]
+    static extern short GetAsyncKeyState(int key);
+
+    const int VK_CONTROL = 0x11;
+
+    /// <summary>Ctrl is held right now. The island never has the keyboard, so this asks the keys themselves.</summary>
+    public static bool CtrlDown => GetAsyncKeyState(VK_CONTROL) < 0;
+
     /// <summary>What the shell tells the windows that ask for it: a key nobody handled is among it.</summary>
     public const int HSHELL_APPCOMMAND = 12;
     public const int APPCOMMAND_VOLUME_DOWN = 9, APPCOMMAND_VOLUME_UP = 10;

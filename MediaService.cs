@@ -13,10 +13,12 @@ namespace DynamicIsland;
 sealed class MediaService
 {
     static readonly Color[] Plain = [Colors.White];
+    const double Turn = 28; // degrees to either side on the colour wheel, for the neighbours of a lone hue
 
     readonly Dispatcher _ui;
     Manager? _manager;
     Session? _session;
+    Session? _chosen; // the app the island was turned to by hand: it stays on show until another one starts to play
     int _version;
 
     TimeSpan _position, _duration;
@@ -63,9 +65,58 @@ sealed class MediaService
     public async Task StartAsync()
     {
         _manager = await Manager.RequestAsync();
-        _manager.CurrentSessionChanged += (_, _) => _ui.InvokeAsync(Attach);
+        _manager.CurrentSessionChanged += (_, _) => _ui.InvokeAsync(() =>
+        {
+            Yield();
+            Attach();
+        });
         _manager.SessionsChanged += (_, _) => _ui.InvokeAsync(Attach);
         Attach();
+    }
+
+    /// <summary>Turns to the next app with a media session, or the previous one; they go round in a circle.</summary>
+    /// <returns>False when there is no other app to turn to.</returns>
+    public bool Switch(int direction)
+    {
+        try
+        {
+            var sessions = _manager?.GetSessions();
+            if (sessions == null || sessions.Count < 2) return false;
+
+            int count = sessions.Count, at = -1;
+            for (int i = 0; i < count && at < 0; i++)
+                if (ReferenceEquals(sessions[i], _session)) at = i;
+            for (int i = 0; i < count && at < 0; i++)
+                if (Same(sessions[i], _session)) at = i;
+
+            // nothing on show yet: start from either end
+            _chosen = sessions[at < 0 ? (direction > 0 ? 0 : count - 1) : ((at + direction) % count + count) % count];
+            Attach();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // an app that starts to play takes the island over, as it always did, whatever it had been turned to
+    void Yield()
+    {
+        try
+        {
+            Session? current = _manager?.GetCurrentSession();
+            if (current != null && !Same(current, _chosen) && Playing(current)) _chosen = null;
+        }
+        catch { }
+    }
+
+    static bool Same(Session? a, Session? b)
+    {
+        if (a == null || b == null) return false;
+        if (ReferenceEquals(a, b)) return true;
+        try { return a.SourceAppUserModelId == b.SourceAppUserModelId; }
+        catch { return false; }
     }
 
     void Attach()
@@ -97,6 +148,14 @@ sealed class MediaService
     {
         try
         {
+            if (_chosen != null)
+            {
+                foreach (Session s in _manager!.GetSessions())
+                    if (Same(s, _chosen)) return s;
+                // its app is gone
+                _chosen = null;
+            }
+
             Session? current = _manager?.GetCurrentSession();
             if (current != null && Playing(current)) return current;
             foreach (Session s in _manager!.GetSessions())
@@ -282,7 +341,6 @@ sealed class MediaService
         const int Slices = 12, Wanted = 3; // of the colour wheel; colours in the palette
         const double Share = 0.08;         // of the cover's weight a hue needs to count
         const double Apart = 64;           // ...and how far it has to be from the others, as a distance in RGB
-        const double Turn = 28;            // degrees to either side, for the neighbours of a lone hue
         try
         {
             var small = new TransformedBitmap(source,
@@ -330,6 +388,9 @@ sealed class MediaService
             return Plain;
         }
     }
+
+    /// <summary>The palette of a colour picked by hand instead of a cover: the colour and its neighbours on the wheel.</summary>
+    public static Color[] Around(Color colour) => [colour, Turned(colour, Turn), Turned(colour, -Turn)];
 
     /// <summary>Brightens a colour to read on black, then pulls it a little towards white to keep it from going fully neon.</summary>
     static Color? Lift(double r, double g, double b)

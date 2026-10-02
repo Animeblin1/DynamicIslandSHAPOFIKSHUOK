@@ -1,15 +1,23 @@
+using System.Windows.Media;
 using Microsoft.Win32;
 
 namespace DynamicIsland;
 
-/// <summary>The switches of the menu, remembered in the registry between runs. All of them start on.</summary>
+/// <summary>
+/// The switches of the menu and the looks picked on the page next to them, remembered in the registry between runs.
+/// All the switches start on.
+/// </summary>
 static class Settings
 {
     const string Key = @"Software\DynamicIsland";
+    const int MinScale = 85, MaxScale = 130, MaxGap = 24;
 
     static bool _lyrics = Read(nameof(Lyrics)), _lyricEffects = Read(nameof(LyricEffects));
     static bool _network = Read(nameof(Network)), _hideFullscreen = Read(nameof(HideFullscreen));
-    static bool _rim = Read(nameof(Rim));
+    static bool _rim = Read(nameof(Rim)), _appVolume = Read(nameof(AppVolume));
+    static int _scale = Math.Clamp(Read(nameof(Scale), 100), MinScale, MaxScale);
+    static int _gap = Math.Clamp(Read(nameof(Gap), 8), 0, MaxGap);
+    static int _accent = Read(nameof(Accent), 0);
 
     /// <summary>Look the lyrics of the track up and show them. Off: nothing is sent to LRCLIB.</summary>
     public static bool Lyrics
@@ -35,6 +43,13 @@ static class Settings
         set => Write(nameof(Rim), _rim = value);
     }
 
+    /// <summary>Over the open player the wheel turns the app that plays up and down. Off: the whole system, as everywhere else.</summary>
+    public static bool AppVolume
+    {
+        get => _appVolume;
+        set => Write(nameof(AppVolume), _appVolume = value);
+    }
+
     /// <summary>Notices about Wi-Fi, Ethernet and VPN.</summary>
     public static bool Network
     {
@@ -49,29 +64,54 @@ static class Settings
         set => Write(nameof(HideFullscreen), _hideFullscreen = value);
     }
 
-    static bool Read(string name)
+    /// <summary>Size of the island, in percent of the one it was drawn at.</summary>
+    public static int Scale
+    {
+        get => _scale;
+        set => Write(nameof(Scale), _scale = Math.Clamp(value, MinScale, MaxScale));
+    }
+
+    /// <summary>Px between the top of the screen and the island.</summary>
+    public static int Gap
+    {
+        get => _gap;
+        set => Write(nameof(Gap), _gap = Math.Clamp(value, 0, MaxGap));
+    }
+
+    /// <summary>One colour for everything that otherwise takes the colours of the cover; null leaves it to the cover.</summary>
+    public static Color? Accent
+    {
+        get => _accent == 0 ? null : Color.FromRgb((byte)(_accent >> 16), (byte)(_accent >> 8), (byte)_accent);
+        set => Write(nameof(Accent), _accent = value is { } c ? c.R << 16 | c.G << 8 | c.B : 0);
+    }
+
+    static bool Read(string name) => Read(name, 1) != 0;
+
+    static int Read(string name, int fallback)
     {
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(Key);
-            return key?.GetValue(name) is not int value || value != 0;
+            return key?.GetValue(name) is int value ? value : fallback;
         }
         catch
         {
-            return true;
+            return fallback;
         }
     }
 
-    static void Write(string name, bool value)
+    static void Write(string name, bool value) => Write(name, value ? 1 : 0);
+
+    static void Write(string name, int value)
     {
         try
         {
             using var key = Registry.CurrentUser.CreateSubKey(Key);
-            key.SetValue(name, value ? 1 : 0, RegistryValueKind.DWord);
+            key.SetValue(name, value, RegistryValueKind.DWord);
         }
         catch (Exception ex)
         {
-            // not saved: the switch still holds until the island is closed
+            // not saved: the setting still holds until the island is closed
             App.Log(ex);
         }
     }

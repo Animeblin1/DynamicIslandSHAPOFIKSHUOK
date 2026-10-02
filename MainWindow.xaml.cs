@@ -14,10 +14,10 @@ namespace DynamicIsland;
 
 public partial class MainWindow : Window
 {
-    enum View { Idle, Media, Timer, Volume, Charge, Toast, Notice, MediaBig, IdleBig, TimerBig, TimerSet, Menu, Settings }
+    enum View { Idle, Media, Timer, Volume, Charge, Toast, Notice, MediaBig, IdleBig, TimerBig, TimerSet, Menu, Settings, Look }
 
     /// <summary>What a click has opened; None is the compact pill.</summary>
-    enum Panel { None, Player, Timer, TimerSet, Menu, Settings }
+    enum Panel { None, Player, Timer, TimerSet, Menu, Settings, Look }
 
     readonly record struct Dims(double W, double H, double R);
 
@@ -34,11 +34,15 @@ public partial class MainWindow : Window
         [View.IdleBig] = new(320, 124, 38),
         [View.TimerBig] = new(330, 92, 40),
         [View.TimerSet] = new(300, 190, 38),
-        [View.Menu] = new(300, 168, 34),
-        [View.Settings] = new(320, 294, 34),
+        [View.Menu] = new(300, 208, 34),
+        [View.Settings] = new(320, 334, 34),
+        [View.Look] = new(320, 208, 34),
     };
 
     const double HostWidth = 620;
+    static readonly int[] Scales = [85, 100, 115, 130]; // percent: the sizes to pick from
+    static readonly int[] Gaps = [0, 4, 8, 12, 16, 24]; // px between the top of the screen and the island
+    const double SourcePause = 0.25; // seconds between two turns to another app: a wheel sends its notches in bursts
     const double BubbleWidth = 78, BubbleGap = 7; // the split-off bubble and the gap between it and the pill
     const int MaxMinutes = 99; // the countdown always reads mm:ss
     const int HeadsetEvery = 300; // ticks between looks at the headphones' charge: it moves slowly
@@ -79,6 +83,7 @@ public partial class MainWindow : Window
     readonly Spring _split = new(0); // 0: the bubble is tucked behind the pill, 1: it stands on its own
     readonly Spring _bubbleScale = new(1); // the bubble answers the pointer by itself, not along with the pill
     readonly Spring _push = new(0); // px the volume bar is stretched past its end
+    readonly Spring _size = new(Settings.Scale / 100.0), _gap = new(Settings.Gap); // the looks picked in the menu
     readonly RectangleGeometry _clip = new();
     readonly SolidColorBrush _accent = new(Colors.White);
     readonly SolidColorBrush _timerTint; // everything a countdown shows is drawn with it: orange, red at the end
@@ -120,6 +125,8 @@ public partial class MainWindow : Window
     ImageSource? _cover;
     int _skip = 1; // the way the last skip went...
     double _skipAt = -SkipMemory; // ...and when
+    double _sourceAt = -SkipMemory; // when the wheel last turned the island to another app
+    string _source = "", _sourceName = ""; // the app on show, and what to call it once it has been turned to
     Color? _rim; // colour the island's edge has taken from the cover
     LyricsService.Line[] _lyricLines = [];
     int _lyricIndex = -1;
@@ -138,6 +145,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // room for the island at its largest and furthest from the top of the screen: the window itself never
+        // changes size, or everything in it would jump as it did
+        Width *= Scales[^1] / 100.0;
+        Height = Height * Scales[^1] / 100.0 + Gaps[^1];
 
         _views = new()
         {
@@ -154,6 +165,7 @@ public partial class MainWindow : Window
             [View.TimerSet] = TimerSetView,
             [View.Menu] = MenuView,
             [View.Settings] = SettingsView,
+            [View.Look] = LookView,
         };
         foreach (FrameworkElement v in _views.Values)
         {
@@ -193,6 +205,8 @@ public partial class MainWindow : Window
         _split.Tune(140, 17); // unhurried: the neck between the two has to be seen stretching and snapping
         _bubbleScale.Tune(320, 20);
         _push.Tune(420, 18); // loose enough to wobble once it is let go
+        _size.Tune(240, 26);
+        _gap.Tune(240, 26);
 
         // debug aid: `DynamicIsland.exe --view MediaBig` pins one state, `--timer 90` starts a 90 s countdown
         string[] args = Environment.GetCommandLineArgs();
@@ -278,6 +292,8 @@ public partial class MainWindow : Window
         SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.InvokeAsync(Place);
         UpdateClock();
         UpdateSwitches(false);
+        UpdateLook();
+        SyncAccent(false);
         Intro();
         _tick.Start();
         if (_forcedTimer > 0) StartTimer(TimeSpan.FromSeconds(_forcedTimer));
@@ -313,6 +329,7 @@ public partial class MainWindow : Window
         {
             Panel.Menu => View.Menu,
             Panel.Settings => View.Settings,
+            Panel.Look => View.Look,
             Panel.TimerSet => View.TimerSet,
             Panel.Timer when _timer.Active => View.TimerBig,
             Panel.Timer or Panel.Player => _media.HasTrack ? View.MediaBig : View.IdleBig,
@@ -349,11 +366,22 @@ public partial class MainWindow : Window
     // the light edge takes the colour of the cover for as long as the island is about its music
     void SyncRim()
     {
-        bool music = _media.HasTrack && _cover != null && (MediaActive || _current == View.MediaBig);
-        Color? tint = Settings.Rim && music ? _media.Accent : null;
+        bool music = _media.HasTrack && (_cover != null || Settings.Accent != null) && (MediaActive || _current == View.MediaBig);
+        Color? tint = Settings.Rim && music ? Accent : null;
         if (tint == _rim) return;
         _rim = tint;
         Body.Tint(tint, Ms(450));
+    }
+
+    /// <summary>What the music is drawn in: the colour picked in the menu, or the one that stands for the cover.</summary>
+    Color Accent => Settings.Accent ?? _media.Accent;
+
+    // the bars and the light of the player
+    void SyncAccent(bool animate = true)
+    {
+        Duration time = Ms(animate ? 450 : 0);
+        _accent.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(Accent, time));
+        Glow.Tint(Settings.Accent is { } own ? MediaService.Around(own) : _media.Palette, time);
     }
 
     bool EqVisible => _current is View.Media or View.Toast or View.MediaBig;
@@ -396,8 +424,9 @@ public partial class MainWindow : Window
         _r.Target = d.R;
         // the timer splits off whenever the compact pill is showing something else
         _split.Target = _timer.Active && compact && _current != View.Timer ? 1 : 0;
-        // a ringing timer shows itself even over a fullscreen app
-        _offset.Target = (_hidden || _away) && !_ringing ? -(d.H + 30) : 0;
+        // a ringing timer shows itself even over a fullscreen app. Out of sight is past the gap above it too,
+        // counted in the island's own px
+        _offset.Target = (_hidden || _away) && !_ringing ? -(d.H + 30 + Settings.Gap * 100.0 / Settings.Scale) : 0;
         _scale.Target = _pressed ? (compact ? 0.93 : 0.975) : _hover && compact ? 1.07 : 1;
         _bubbleScale.Target = _bubblePressed ? 0.93 : _bubbleHover ? 1.07 : 1;
         Animate();
@@ -425,6 +454,8 @@ public partial class MainWindow : Window
         moving |= _r.Advance(dt);
         moving |= _scale.Advance(dt);
         moving |= _offset.Advance(dt);
+        moving |= _size.Advance(dt);
+        moving |= _gap.Advance(dt);
         moving |= _split.Advance(dt);
         moving |= _bubbleScale.Advance(dt);
         moving |= _push.Advance(dt);
@@ -468,7 +499,10 @@ public partial class MainWindow : Window
 
         double scale = Math.Max(_scale.Value, 0.01);
         IslandScale.ScaleX = IslandScale.ScaleY = scale;
-        RootMove.Y = _offset.Value;
+        // the gap is in px of the screen, whatever the size
+        double size = Math.Max(_size.Value, 0.01);
+        RootSize.ScaleX = RootSize.ScaleY = size;
+        RootMove.Y = _offset.Value + _gap.Value / size;
 
         // the bubble rides the pill's right end: inside it, then out past the gap, its content fading in as it comes free.
         // It follows that end as the pill swells under the pointer, but keeps its own size
@@ -638,7 +672,9 @@ public partial class MainWindow : Window
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         });
 
-        if (!first) ShowTransient(View.Volume, 1.6);
+        if (first) return;
+        ShowTransient(View.Volume, 1.6);
+        ShowPlayerVolume(level, muted, false);
     }
 
     /// <summary>Nowhere further for the volume to go that way.</summary>
@@ -653,7 +689,25 @@ public partial class MainWindow : Window
         _pushTimer.Stop();
         _pushTimer.Start();
         ShowTransient(View.Volume, 1.6);
+        ShowPlayerVolume(_lastVolume, _lastMuted, false);
         Animate();
+    }
+
+    /// <summary>The open player leaves no room for the HUD: there the level comes up beside the buttons for a moment.</summary>
+    /// <param name="app">It is the app that plays that was turned up or down, not the whole system.</param>
+    void ShowPlayerVolume(float level, bool muted, bool app)
+    {
+        if (_current != View.MediaBig) return;
+        PlayerVolumeIcon.Kind = app ? Glyph.Note : VolIcon.Kind;
+        PlayerVolumeIcon.Fill = PlayerVolumeText.Foreground = app ? _accent : (Brush)FindResource("Dim");
+        PlayerVolumeText.Text = muted ? "выкл" : (int)Math.Round(level * 100) + "%";
+
+        // from wherever it is: asked again while it is up, it just stays
+        var show = new DoubleAnimationUsingKeyFrames { Duration = Ms(1900) };
+        show.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(120))));
+        show.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1500))));
+        show.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1900))));
+        PlayerVolume.BeginAnimation(OpacityProperty, show);
     }
 
     void PollPower()
@@ -959,8 +1013,20 @@ public partial class MainWindow : Window
     void OnMediaChanged()
     {
         string title = _media.HasTrack ? _media.Title : "";
+        bool newTrack = title.Length > 0 && title != _lastTitle;
+        _lastTitle = title;
+
+        // turned to by the wheel, an app is introduced by name; one that took over by itself is not
+        bool asked = _time.Elapsed.TotalSeconds - _sourceAt < SkipMemory;
+        string source = _media.Source;
+        bool turned = source != _source && asked;
+        if (source != _source) _sourceName = asked ? SourceApp.Name(source) : "";
+        else if (newTrack && !asked) _sourceName = "";
+        _source = source;
+
+        string artist = string.IsNullOrWhiteSpace(_media.Artist) ? "Неизвестный исполнитель" : _media.Artist;
         TitleBig.Text = ToastTitle.Text = title;
-        ArtistBig.Text = ToastArtist.Text = string.IsNullOrWhiteSpace(_media.Artist) ? "Неизвестный исполнитель" : _media.Artist;
+        ArtistBig.Text = ToastArtist.Text = _sourceName.Length > 0 ? _sourceName + " · " + artist : artist;
 
         if (!ReferenceEquals(_cover, _media.Art))
         {
@@ -970,9 +1036,7 @@ public partial class MainWindow : Window
             ArtSmall.Show(_cover, heading);
             ArtToast.Show(_cover, heading);
             ArtBig.Show(_cover, heading);
-            var tint = new ColorAnimation(_media.Accent, Ms(450));
-            _accent.BeginAnimation(SolidColorBrush.ColorProperty, tint);
-            Glow.Tint(_media.Palette, tint.Duration);
+            SyncAccent();
         }
 
         if (_media.IsPlaying != _playShown)
@@ -980,11 +1044,10 @@ public partial class MainWindow : Window
             _playShown = _media.IsPlaying;
             Trade(_playShown ? PlayIcon : PauseIcon, _playShown ? PauseIcon : PlayIcon, MediaBigView.IsVisible);
         }
-        if (_media.IsPlaying) _lastPlaying = DateTime.UtcNow;
+        // an app that was turned to stays in the pill for a while even when it is paused
+        if (_media.IsPlaying || turned) _lastPlaying = DateTime.UtcNow;
 
-        bool newTrack = title.Length > 0 && title != _lastTitle;
-        _lastTitle = title;
-        if (newTrack && _media.IsPlaying) ShowTransient(View.Toast, 3.2);
+        if (turned || (newTrack && _media.IsPlaying)) ShowTransient(View.Toast, 3.2);
         TrackLyrics();
         UpdateView();
         UpdateLyric();
@@ -1033,6 +1096,16 @@ public partial class MainWindow : Window
     {
         _skip = direction;
         _skipAt = _time.Elapsed.TotalSeconds;
+    }
+
+    /// <summary>Turns the island to the next app that has something to play, or to the previous one.</summary>
+    void SwitchSource(int direction)
+    {
+        double now = _time.Elapsed.TotalSeconds;
+        if (now - _sourceAt < SourcePause || !_media.Switch(direction)) return;
+        _sourceAt = now;
+        // the covers cross the way the wheel went
+        Skipped(direction);
     }
 
     // switched off in the menu, the lyrics are not even looked up
@@ -1456,10 +1529,18 @@ public partial class MainWindow : Window
     void Root_MouseWheel(object sender, MouseWheelEventArgs e)
     {
         bool up = e.Delta > 0;
-        if (_current == View.TimerSet) SetMinutes(_minutes + (up ? 1 : -1));
-        else if (VolumeAtEnd(up)) PushVolume(up);
-        else _audio.Nudge(up ? 0.02f : -0.02f);
+        int step = up ? 1 : -1;
         e.Handled = true;
+        // with Ctrl held the wheel leafs through the apps that play: down for the next one
+        if (Native.CtrlDown) SwitchSource(-step);
+        else if (_current == View.TimerSet) SetMinutes(_minutes + step);
+        else if (_current == View.Look && SizeRow.IsMouseOver) SetScale(Step(Scales, Settings.Scale, step, false));
+        else if (_current == View.Look && GapRow.IsMouseOver) SetGap(Step(Gaps, Settings.Gap, step, false));
+        // over the open player it is the music that gets louder, not everything else along with it
+        else if (_current == View.MediaBig && Settings.AppVolume && _audio.Nudge(_media.Source, step * 0.02f, out float level))
+            ShowPlayerVolume(level, false, true);
+        else if (VolumeAtEnd(up)) PushVolume(up);
+        else _audio.Nudge(step * 0.02f);
     }
 
     // ───────────────────────── menu ─────────────────────────
@@ -1470,6 +1551,13 @@ public partial class MainWindow : Window
         UpdateView();
     }
 
+    void LookRow_Click(object sender, RoutedEventArgs e)
+    {
+        _panel = Panel.Look;
+        UpdateView();
+    }
+
+    // the heading of either page
     void SettingsBack_Click(object sender, RoutedEventArgs e)
     {
         _panel = Panel.Menu;
@@ -1506,6 +1594,12 @@ public partial class MainWindow : Window
         SyncRim();
     }
 
+    void AppVolume_Click(object sender, RoutedEventArgs e)
+    {
+        Settings.AppVolume = !Settings.AppVolume;
+        UpdateSwitches(true);
+    }
+
     void Network_Click(object sender, RoutedEventArgs e)
     {
         Settings.Network = !Settings.Network;
@@ -1524,9 +1618,70 @@ public partial class MainWindow : Window
         LyricsSwitch.Set(Settings.Lyrics, animate);
         LyricEffectsSwitch.Set(Settings.LyricEffects, animate);
         RimSwitch.Set(Settings.Rim, animate);
+        AppVolumeSwitch.Set(Settings.AppVolume, animate);
         NetworkSwitch.Set(Settings.Network, animate);
         FullscreenSwitch.Set(Settings.HideFullscreen, animate);
         AutostartSwitch.Set(Autostart.Enabled, animate);
+    }
+
+    // ───────────────────────── looks ─────────────────────────
+
+    /// <summary>The value next to <paramref name="value"/> among the ones to pick from; past the last it is the first again, or stays.</summary>
+    static int Step(int[] among, int value, int by, bool wrap)
+    {
+        int count = among.Length, at = Array.IndexOf(among, value) + by;
+        return among[wrap ? (at % count + count) % count : Math.Clamp(at, 0, count - 1)];
+    }
+
+    void Size_Click(object sender, RoutedEventArgs e) => SetScale(Step(Scales, Settings.Scale, 1, true));
+    void Gap_Click(object sender, RoutedEventArgs e) => SetGap(Step(Gaps, Settings.Gap, 1, true));
+
+    void SetScale(int percent)
+    {
+        if (percent == Settings.Scale) return;
+        Settings.Scale = percent;
+        UpdateLook();
+        ApplyLook();
+    }
+
+    void SetGap(int px)
+    {
+        if (px == Settings.Gap) return;
+        Settings.Gap = px;
+        UpdateLook();
+        ApplyLook();
+    }
+
+    void Accent_Click(object sender, RoutedEventArgs e)
+    {
+        // the strip's first dot is a gradient: that one leaves the colour to the cover
+        Settings.Accent = ((RadioButton)sender).Background is SolidColorBrush picked ? picked.Color : null;
+        UpdateLook();
+        SyncAccent();
+        SyncRim();
+    }
+
+    // what the rows of the page read, and which colour of the strip wears the ring
+    void UpdateLook()
+    {
+        SizeText.Text = Settings.Scale + "%";
+        GapText.Text = Settings.Gap + " px";
+        foreach (RadioButton dot in AccentStrip.Children)
+        {
+            Color? colour = dot.Background is SolidColorBrush own ? own.Color : null;
+            if (colour != Settings.Accent) continue;
+            dot.IsChecked = true;
+            AccentText.Text = (string)dot.Tag;
+        }
+    }
+
+    /// <summary>Sends the island to the size and the distance from the top of the screen picked in the menu.</summary>
+    void ApplyLook()
+    {
+        _size.Target = Settings.Scale / 100.0;
+        _gap.Target = Settings.Gap;
+        // where "out of sight" is depends on both
+        SetTargets();
     }
 
     void Exit_Click(object sender, RoutedEventArgs e)

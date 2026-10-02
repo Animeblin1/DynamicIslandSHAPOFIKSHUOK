@@ -2,12 +2,13 @@ using System.Runtime.InteropServices;
 
 namespace DynamicIsland;
 
-/// <summary>Master volume + output peak meter of the default playback device (Core Audio).</summary>
+/// <summary>Master volume + output peak meter of the default playback device, and the volume of one app on it (Core Audio).</summary>
 sealed class AudioService
 {
     const int ERender = 0, EMultimedia = 1, ClsCtxAll = 23;
     const int VtLpwstr = 31, VtUi4 = 19, VtClsid = 72;
     const uint Headphones = 3, Headset = 5; // EndpointFormFactor
+    const int SessionExpired = 2; // AudioSessionState: the app that sounded is gone
     static readonly TimeSpan Refresh = TimeSpan.FromSeconds(1);
 
     static readonly Guid DeviceFormat = new("a45c254e-df1c-4efd-8020-67d146a850e0");
@@ -67,6 +68,81 @@ sealed class AudioService
         if (_volume == null || _volume.GetMasterVolumeLevelScalar(out float level) != 0) return;
         Guid ctx = Guid.Empty;
         _volume.SetMasterVolumeLevelScalar(Math.Clamp(level + delta, 0f, 1f), ref ctx);
+    }
+
+    /// <summary>Turns one app up or down on the default device, the way its slider in the system mixer does.</summary>
+    /// <param name="appId">The app, as its media session names it.</param>
+    /// <param name="level">Where its volume is now, 0..1.</param>
+    /// <returns>False when the app has no sound of its own there: nothing was changed.</returns>
+    public bool Nudge(string appId, float delta, out float level)
+    {
+        level = 0;
+        bool found = false;
+        try
+        {
+            // a fresh mixer every time: one kept from before does not hear of the apps that started to sound since
+            if (Mixer() is not { } mixer) return false;
+            IAudioSessionEnumerator? sessions = null;
+            try
+            {
+                if (mixer.GetSessionEnumerator(out sessions) != 0 || sessions == null || sessions.GetCount(out int count) != 0) return false;
+                for (int i = 0; i < count; i++)
+                {
+                    if (sessions.GetSession(i, out object? session) != 0 || session == null) continue;
+                    try
+                    {
+                        if (session is not IAudioSessionControl2 control || session is not ISimpleAudioVolume volume) continue;
+                        if (control.GetState(out int state) != 0 || state == SessionExpired) continue;
+                        // above zero it says the sound is shared by several processes, and still names the first
+                        if (control.GetProcessId(out uint process) < 0 || !SourceApp.Owns(appId, process)) continue;
+
+                        // an app may sound through several streams: they all go where the first one does
+                        if (!found)
+                        {
+                            if (volume.GetMasterVolume(out level) != 0) continue;
+                            level = Math.Clamp(level + delta, 0f, 1f);
+                            found = true;
+                        }
+                        Guid ctx = Guid.Empty;
+                        volume.SetMasterVolume(level, ref ctx);
+                        // turned up, it is not left muted
+                        if (delta > 0) volume.SetMute(false, ref ctx);
+                    }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(session);
+                    }
+                }
+            }
+            finally
+            {
+                if (sessions != null) Marshal.ReleaseComObject(sessions);
+                Marshal.ReleaseComObject(mixer);
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Log(ex);
+        }
+        return found;
+    }
+
+    /// <summary>The per-app volumes of the default playback device.</summary>
+    static IAudioSessionManager2? Mixer()
+    {
+        var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+        IMMDevice? device = null;
+        try
+        {
+            if (enumerator.GetDefaultAudioEndpoint(ERender, EMultimedia, out device) != 0 || device == null) return null;
+            Guid iid = typeof(IAudioSessionManager2).GUID;
+            return device.Activate(ref iid, ClsCtxAll, IntPtr.Zero, out object? mixer) == 0 ? mixer as IAudioSessionManager2 : null;
+        }
+        finally
+        {
+            if (device != null) Marshal.ReleaseComObject(device);
+            Marshal.ReleaseComObject(enumerator);
+        }
     }
 
     // The default device can change (headphones plugged in), so check which one it is every second
@@ -235,4 +311,48 @@ interface IAudioEndpointVolume
 interface IAudioMeterInformation
 {
     [PreserveSig] int GetPeakValue(out float peak);
+}
+
+// the system mixer: one session per app that sounds on a device. Only the methods that are called are spelled
+// out, the rest keep their slots
+
+[ComImport, Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionManager2
+{
+    [PreserveSig] int GetAudioSessionControl(IntPtr session, uint flags, out IntPtr control);
+    [PreserveSig] int GetSimpleAudioVolume(IntPtr session, uint flags, out IntPtr volume);
+    [PreserveSig] int GetSessionEnumerator(out IAudioSessionEnumerator? sessions);
+}
+
+[ComImport, Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionEnumerator
+{
+    [PreserveSig] int GetCount(out int count);
+    [PreserveSig] int GetSession(int index, [MarshalAs(UnmanagedType.IUnknown)] out object? session);
+}
+
+[ComImport, Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionControl2
+{
+    [PreserveSig] int GetState(out int state);
+    [PreserveSig] int GetDisplayName(out IntPtr name);
+    [PreserveSig] int SetDisplayName(IntPtr name, IntPtr context);
+    [PreserveSig] int GetIconPath(out IntPtr path);
+    [PreserveSig] int SetIconPath(IntPtr path, IntPtr context);
+    [PreserveSig] int GetGroupingParam(out Guid group);
+    [PreserveSig] int SetGroupingParam(IntPtr group, IntPtr context);
+    [PreserveSig] int RegisterAudioSessionNotification(IntPtr notify);
+    [PreserveSig] int UnregisterAudioSessionNotification(IntPtr notify);
+    [PreserveSig] int GetSessionIdentifier(out IntPtr id);
+    [PreserveSig] int GetSessionInstanceIdentifier(out IntPtr id);
+    [PreserveSig] int GetProcessId(out uint process);
+}
+
+[ComImport, Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface ISimpleAudioVolume
+{
+    [PreserveSig] int SetMasterVolume(float level, ref Guid context);
+    [PreserveSig] int GetMasterVolume(out float level);
+    [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid context);
+    [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
 }

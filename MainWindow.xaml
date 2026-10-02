@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:DynamicIsland"
-        Title="Dynamic Island" Width="680" Height="400"
+        Title="Dynamic Island" Width="680" Height="440"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" ShowActivated="False" Topmost="True" ResizeMode="NoResize"
         Focusable="False" UseLayoutRounding="True"
@@ -161,14 +161,75 @@
             </Setter>
         </Style>
 
+        <!-- a colour to pick: a dot in its Background, with a ring around the one that is picked -->
+        <Style x:Key="Swatch" TargetType="RadioButton">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid Width="24" Height="24" Background="Transparent">
+                            <Ellipse x:Name="Ring" Stroke="White" StrokeThickness="1.5" Opacity="0"/>
+                            <Ellipse Margin="5" Fill="{TemplateBinding Background}" RenderTransformOrigin="0.5,0.5">
+                                <Ellipse.RenderTransform>
+                                    <ScaleTransform x:Name="Swell"/>
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.15"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="Ring" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.25"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="Swell" Storyboard.TargetProperty="ScaleX" To="1.18" Duration="0:0:0.12"/>
+                                            <DoubleAnimation Storyboard.TargetName="Swell" Storyboard.TargetProperty="ScaleY" To="1.18" Duration="0:0:0.12"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="Swell" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.3"/>
+                                            <DoubleAnimation Storyboard.TargetName="Swell" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.3"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
     </Window.Resources>
 
-    <Grid x:Name="Root" Width="620" Height="370" Margin="0,8,0,0" Opacity="0"
-          HorizontalAlignment="Center" VerticalAlignment="Top"
+    <!-- moved down by the gap to the top of the screen and scaled to the size picked in the menu: the island grows
+         down and sideways from the middle of its top edge. The window is made larger than this to hold it then -->
+    <Grid x:Name="Root" Width="620" Height="410" Opacity="0"
+          HorizontalAlignment="Center" VerticalAlignment="Top" RenderTransformOrigin="0.5,0"
           MouseLeftButtonDown="Root_MouseLeftButtonDown" MouseLeftButtonUp="Root_MouseLeftButtonUp"
           MouseRightButtonUp="Root_MouseRightButtonUp" MouseUp="Root_MouseUp" MouseWheel="Root_MouseWheel">
         <Grid.RenderTransform>
-            <TranslateTransform x:Name="RootMove"/>
+            <TransformGroup>
+                <TranslateTransform x:Name="RootMove"/>
+                <ScaleTransform x:Name="RootSize"/>
+            </TransformGroup>
         </Grid.RenderTransform>
 
         <!-- the pill and everything in it: one piece under the pointer, scaled from its top centre -->
@@ -409,6 +470,17 @@
                         <TextBlock x:Name="PlayerHeadsetText" FontSize="11" Foreground="{StaticResource Dim}" Margin="5,0,0,0"
                                    Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"/>
                     </StackPanel>
+
+                    <!-- the volume the wheel has just moved, across from the headphones: it comes up and fades.
+                         A note for the app that plays, the speaker for the whole system -->
+                    <StackPanel x:Name="PlayerVolume" Orientation="Horizontal" Height="52" Margin="20,0,0,8"
+                                HorizontalAlignment="Left" VerticalAlignment="Bottom" IsHitTestVisible="False"
+                                Opacity="0">
+                        <local:Icon x:Name="PlayerVolumeIcon" Kind="Note" Width="14" Height="14"
+                                    Fill="{StaticResource Dim}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="PlayerVolumeText" FontSize="11" Foreground="{StaticResource Dim}" Margin="5,0,0,0"
+                                   Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"/>
+                    </StackPanel>
                 </Grid>
 
                 <!-- expanded, nothing playing -->
@@ -508,7 +580,7 @@
                 </Grid>
 
                 <!-- right-click menu -->
-                <Grid x:Name="MenuView" Width="300" Height="168" HorizontalAlignment="Center" VerticalAlignment="Top">
+                <Grid x:Name="MenuView" Width="300" Height="208" HorizontalAlignment="Center" VerticalAlignment="Top">
                     <local:RowList Margin="10,14,10,0">
                         <TextBlock Text="DYNAMIC ISLAND" FontSize="10.5" FontWeight="SemiBold" Foreground="#66FFFFFF"
                                    Margin="12,0,0,6"/>
@@ -533,6 +605,15 @@
                                             Margin="0,1,0,0" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
+                        <Button Style="{StaticResource RowButton}" Click="LookRow_Click">
+                            <Grid>
+                                <local:Icon Kind="Look" Width="17" Height="17" Fill="{StaticResource Dim}"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                <TextBlock Text="Оформление" Margin="29,0,0,0" VerticalAlignment="Center"/>
+                                <local:Icon Kind="Chevron" Width="11" Height="11" Fill="{StaticResource Dim}"
+                                            Margin="0,1,0,0" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Button>
                         <Button Style="{StaticResource RowButton}" Click="Exit_Click">
                             <Grid>
                                 <local:Icon Kind="Power" Width="17" Height="17" Fill="{StaticResource Red}"
@@ -544,7 +625,7 @@
                 </Grid>
 
                 <!-- its second page: the switches. The heading leads back -->
-                <Grid x:Name="SettingsView" Width="320" Height="294" HorizontalAlignment="Center" VerticalAlignment="Top">
+                <Grid x:Name="SettingsView" Width="320" Height="334" HorizontalAlignment="Center" VerticalAlignment="Top">
                     <local:RowList Margin="10,8,10,0">
                         <Button Style="{StaticResource RowButton}" Height="32" Margin="0,0,0,2" Click="SettingsBack_Click">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -573,8 +654,16 @@
                             <Grid>
                                 <local:Icon Kind="Rim" Width="17" Height="17" Fill="{StaticResource Dim}"
                                             HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                                <TextBlock Text="Ободок в цвет обложки" Margin="29,0,0,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="Цветной ободок" Margin="29,0,0,0" VerticalAlignment="Center"/>
                                 <local:Toggle x:Name="RimSwitch" Width="38" Height="22" HorizontalAlignment="Right"/>
+                            </Grid>
+                        </Button>
+                        <Button Style="{StaticResource RowButton}" Click="AppVolume_Click">
+                            <Grid>
+                                <local:Icon Kind="Mid" Width="17" Height="17" Fill="{StaticResource Dim}"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                <TextBlock Text="Громкость приложения" Margin="29,0,0,0" VerticalAlignment="Center"/>
+                                <local:Toggle x:Name="AppVolumeSwitch" Width="38" Height="22" HorizontalAlignment="Right"/>
                             </Grid>
                         </Button>
                         <Button Style="{StaticResource RowButton}" Click="Network_Click">
@@ -601,6 +690,67 @@
                                 <local:Toggle x:Name="AutostartSwitch" Width="38" Height="22" HorizontalAlignment="Right"/>
                             </Grid>
                         </Button>
+                    </local:RowList>
+                </Grid>
+
+                <!-- its third: how the island looks. A click on a row steps to its next value and the wheel goes
+                     both ways; the colours are picked straight from the strip -->
+                <Grid x:Name="LookView" Width="320" Height="208" HorizontalAlignment="Center" VerticalAlignment="Top">
+                    <local:RowList Margin="10,8,10,0">
+                        <Button Style="{StaticResource RowButton}" Height="32" Margin="0,0,0,2" Click="SettingsBack_Click">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <local:Icon Kind="Back" Width="10" Height="10" Fill="#66FFFFFF" VerticalAlignment="Center"/>
+                                <TextBlock Text="ОФОРМЛЕНИЕ" FontSize="10.5" FontWeight="SemiBold" Foreground="#66FFFFFF"
+                                           Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="SizeRow" Style="{StaticResource RowButton}" Click="Size_Click">
+                            <Grid>
+                                <local:Icon Kind="Size" Width="17" Height="17" Fill="{StaticResource Dim}"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                <TextBlock Text="Размер" Margin="29,0,0,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="SizeText" Foreground="{StaticResource Dim}" Typography.NumeralAlignment="Tabular"
+                                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Button>
+                        <Button x:Name="GapRow" Style="{StaticResource RowButton}" Click="Gap_Click">
+                            <Grid>
+                                <local:Icon Kind="Gap" Width="17" Height="17" Fill="{StaticResource Dim}"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                <TextBlock Text="Отступ от края" Margin="29,0,0,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="GapText" Foreground="{StaticResource Dim}" Typography.NumeralAlignment="Tabular"
+                                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Button>
+                        <Grid Height="40" Margin="12,0">
+                            <local:Icon Kind="Drop" Width="17" Height="17" Fill="{StaticResource Dim}"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                            <TextBlock Text="Акцентный цвет" FontSize="13.5" Margin="29,0,0,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="AccentText" FontSize="13.5" Foreground="{StaticResource Dim}"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                        </Grid>
+                        <!-- the first leaves the colour to the cover -->
+                        <UniformGrid x:Name="AccentStrip" Rows="1" Height="30" Margin="8,0">
+                            <RadioButton Style="{StaticResource Swatch}" Tag="Из обложки" Click="Accent_Click">
+                                <RadioButton.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#FF375F" Offset="0"/>
+                                        <GradientStop Color="#FFD60A" Offset="0.35"/>
+                                        <GradientStop Color="#30D158" Offset="0.65"/>
+                                        <GradientStop Color="#0A84FF" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </RadioButton.Background>
+                            </RadioButton>
+                            <RadioButton Style="{StaticResource Swatch}" Background="#FFFFFF" Tag="Белый" Click="Accent_Click"/>
+                            <RadioButton Style="{StaticResource Swatch}" Background="#FF453A" Tag="Красный" Click="Accent_Click"/>
+                            <RadioButton Style="{StaticResource Swatch}" Background="#FF9F0A" Tag="Оранжевый" Click="Accent_Click"/>
+                            <RadioButton Style="{StaticResource Swatch}" Background="#FFD60A" Tag="Жёлтый" Click="Accent_Click"/>
+                            <RadioButton Style="{StaticResource Swatch}" Background="#30D158" Tag="Зелёный" Click="Accent_Click"/>
+                            <RadioButton Style="{StaticResource Swatch}" Background="#64D2FF" Tag="Голубой" Click="Accent_Click"/>
+                            <RadioButton Style="{StaticResource Swatch}" Background="#0A84FF" Tag="Синий" Click="Accent_Click"/>
+                            <RadioButton Style="{StaticResource Swatch}" Background="#BF5AF2" Tag="Фиолетовый" Click="Accent_Click"/>
+                            <RadioButton Style="{StaticResource Swatch}" Background="#FF375F" Tag="Розовый" Click="Accent_Click"/>
+                        </UniformGrid>
                     </local:RowList>
                 </Grid>
             </Grid>

@@ -6,7 +6,10 @@ using System.Text;
 
 namespace DynamicIsland;
 
-/// <summary>Brings the app a media session belongs to (Spotify, the browser...) to the front.</summary>
+/// <summary>
+/// The app a media session belongs to (Spotify, the browser...): brings it to the front, names it and tells
+/// its processes from the others.
+/// </summary>
 /// <remarks>
 /// A session names its app in one of three ways: by its exe ("Spotify.exe"), by the id of its Start menu entry
 /// ("Chrome", Firefox's "308046B0AF4A39CB") or, for a Store app, by its package ("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify").
@@ -68,6 +71,33 @@ static class SourceApp
         }
         if (IsIconic(found)) ShowWindow(found, SW_RESTORE);
         SetForegroundWindow(found);
+    }
+
+    /// <summary>What the app is called in the Start menu, or its exe without the ending; empty when the id says neither.</summary>
+    public static string Name(string appId)
+    {
+        if (appId.Length == 0) return "";
+        try
+        {
+            dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application")!)!;
+            if (shell.NameSpace("shell:AppsFolder")?.ParseName(appId)?.Name is string name && name.Length > 0) return name;
+        }
+        catch
+        {
+            // no such entry
+        }
+        return appId.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? Path.GetFileNameWithoutExtension(appId) : "";
+    }
+
+    static string _targetOf = "", _target = "";
+
+    /// <summary>Whether a process is one of the app's: a player or a browser sounds through more than the one that has its window.</summary>
+    public static bool Owns(string appId, uint process)
+    {
+        if (appId.Length == 0) return false;
+        // asked on every notch of the wheel, for the same app
+        if (appId != _targetOf) (_targetOf, _target) = (appId, Target(appId));
+        return Runs(process, appId, _target);
     }
 
     /// <summary>The exe that the Start menu entry with this id starts; empty when there is no such entry.</summary>
