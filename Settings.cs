@@ -7,7 +7,7 @@ static class Settings
 {
     const string Key = @"Software\DynamicIsland";
 
-    static bool _lyrics = Read(nameof(Lyrics)), _playerLyrics = Read(nameof(PlayerLyrics));
+    static bool _lyrics = Read(nameof(Lyrics)), _lyricEffects = Read(nameof(LyricEffects));
     static bool _network = Read(nameof(Network)), _hideFullscreen = Read(nameof(HideFullscreen));
 
     /// <summary>Look the lyrics of the track up and show them. Off: nothing is sent to LRCLIB.</summary>
@@ -17,11 +17,14 @@ static class Settings
         set => Write(nameof(Lyrics), _lyrics = value);
     }
 
-    /// <summary>Show the lines in the expanded player too. Off: it keeps its plain height, and the lyrics stay in the compact pill.</summary>
-    public static bool PlayerLyrics
+    /// <summary>
+    /// In the expanded player the line being sung fills with light and the others sit back smaller and out of focus.
+    /// Off: the lines only differ in brightness.
+    /// </summary>
+    public static bool LyricEffects
     {
-        get => _playerLyrics;
-        set => Write(nameof(PlayerLyrics), _playerLyrics = value);
+        get => _lyricEffects;
+        set => Write(nameof(LyricEffects), _lyricEffects = value);
     }
 
     /// <summary>Notices about Wi-Fi, Ethernet and VPN.</summary>

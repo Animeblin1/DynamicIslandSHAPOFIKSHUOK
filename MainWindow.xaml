@@ -562,10 +562,10 @@
                                 <local:Toggle x:Name="LyricsSwitch" Width="38" Height="22" HorizontalAlignment="Right"/>
                             </Grid>
                         </Button>
-                        <Button Style="{StaticResource RowButton}" Click="PlayerLyrics_Click">
+                        <Button Style="{StaticResource RowButton}" Click="LyricEffects_Click">
                             <Grid>
-                                <TextBlock Text="Текст в плеере" VerticalAlignment="Center"/>
-                                <local:Toggle x:Name="PlayerLyricsSwitch" Width="38" Height="22" HorizontalAlignment="Right"/>
+                                <TextBlock Text="Эффекты текста" VerticalAlignment="Center"/>
+                                <local:Toggle x:Name="LyricEffectsSwitch" Width="38" Height="22" HorizontalAlignment="Right"/>
                             </Grid>
                         </Button>
                         <Button Style="{StaticResource RowButton}" Click="Network_Click">

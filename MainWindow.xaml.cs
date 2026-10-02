@@ -968,8 +968,7 @@ public partial class MainWindow : Window
     /// <param name="snap">The player is just opening: put the lines in place instead of scrolling to them.</param>
     void UpdatePlayerLyric(bool snap = false)
     {
-        // switched off in the menu, the player stays as it is without lyrics
-        LyricsService.Line[] lines = Settings.PlayerLyrics ? _lyrics.For(_media.Duration) : [];
+        LyricsService.Line[] lines = _lyrics.For(_media.Duration);
         if (!ReferenceEquals(lines, _playerLines))
         {
             _playerLines = lines;
@@ -1003,7 +1002,7 @@ public partial class MainWindow : Window
             Lyric row = _playerRows[i];
             if (i == index || i == was) Sing(row, i == index, fade);
             // only the lines in sight carry a blur; the one being sung comes into focus
-            if (i != index && Math.Abs(i - index) <= 2) Focus(row, PlayerLyricBlur, fade);
+            if (i != index && Math.Abs(i - index) <= 2 && Settings.LyricEffects) Focus(row, PlayerLyricBlur, fade);
             else if (i == index) Focus(row, 0, fade);
             else row.Effect = null;
         }
@@ -1024,7 +1023,7 @@ public partial class MainWindow : Window
         _playerRows = new Lyric[lines.Length];
         _playerMiddles = new double[lines.Length];
 
-        double width = PlayerLyricBox.Width, top = 0;
+        double width = PlayerLyricBox.Width, top = 0, size = Settings.LyricEffects ? PlayerLyricSmall : 1;
         for (int i = 0; i < lines.Length; i++)
         {
             // a line with no words marks a break in the singing
@@ -1034,7 +1033,7 @@ public partial class MainWindow : Window
                 Opacity = PlayerLyricDim,
                 // the words start at the left, so that is the side a line shrinks towards
                 RenderTransformOrigin = new Point(0, 0.5),
-                RenderTransform = new ScaleTransform(PlayerLyricSmall, PlayerLyricSmall),
+                RenderTransform = new ScaleTransform(size, size),
             };
             PlayerLyricLines.Children.Add(row);
             row.Measure(new Size(width, double.PositiveInfinity));
@@ -1050,9 +1049,11 @@ public partial class MainWindow : Window
     {
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         row.BeginAnimation(OpacityProperty, new DoubleAnimation(sung ? 1 : PlayerLyricDim, time));
+        // with the effects switched off in the menu that is all: the line is lit whole, at its full size
+        bool effects = Settings.LyricEffects;
         // set back, the whole line is lit evenly again, however far it had been sung
-        row.BeginAnimation(Lyric.UnsungProperty, new DoubleAnimation(sung ? PlayerLyricAhead : 1, time));
-        var size = new DoubleAnimation(sung ? 1 : PlayerLyricSmall, time) { EasingFunction = ease };
+        row.BeginAnimation(Lyric.UnsungProperty, new DoubleAnimation(sung && effects ? PlayerLyricAhead : 1, time));
+        var size = new DoubleAnimation(sung || !effects ? 1 : PlayerLyricSmall, time) { EasingFunction = ease };
         row.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, size);
         row.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, size);
     }
@@ -1285,11 +1286,12 @@ public partial class MainWindow : Window
         TrackLyrics();
     }
 
-    // the player picks it up the next time it opens: it is the menu that is open now
-    void PlayerLyrics_Click(object sender, RoutedEventArgs e)
+    void LyricEffects_Click(object sender, RoutedEventArgs e)
     {
-        Settings.PlayerLyrics = !Settings.PlayerLyrics;
+        Settings.LyricEffects = !Settings.LyricEffects;
         UpdateSwitches(true);
+        // the player lays its lines out again, the other way, the next time it opens
+        _playerLines = [];
     }
 
     void Network_Click(object sender, RoutedEventArgs e)
@@ -1308,7 +1310,7 @@ public partial class MainWindow : Window
     void UpdateSwitches(bool animate)
     {
         LyricsSwitch.Set(Settings.Lyrics, animate);
-        PlayerLyricsSwitch.Set(Settings.PlayerLyrics, animate);
+        LyricEffectsSwitch.Set(Settings.LyricEffects, animate);
         NetworkSwitch.Set(Settings.Network, animate);
         FullscreenSwitch.Set(Settings.HideFullscreen, animate);
         AutostartSwitch.Set(Autostart.Enabled, animate);
