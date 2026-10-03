@@ -307,6 +307,7 @@ public partial class MainWindow : Window
         };
 
         Loaded += OnLoaded;
+        LocationChanged += Window_LocationChanged;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -360,6 +361,12 @@ public partial class MainWindow : Window
     {
         Left = (SystemParameters.PrimaryScreenWidth - Width) / 2;
         Top = 0;
+    }
+
+    /// <summary>The window is never moved by hand: whatever shoved it (a modal dialog owned by it, the shell) is undone.</summary>
+    void Window_LocationChanged(object? sender, EventArgs e)
+    {
+        if (Math.Abs(Top) > 0.5 || Math.Abs(Left - (SystemParameters.PrimaryScreenWidth - Width) / 2) > 0.5) Place();
     }
 
     void Intro()
@@ -1816,6 +1823,9 @@ public partial class MainWindow : Window
             picked = false;
         }
         finally { _picking = false; }
+        // the dialog is modal over this window: put the window back where it belongs before anything else reacts
+        Place();
+        Native.KeepOnTop(_hwnd);
         if (picked) _shelf.Add(dialog.FileNames);
 
         // the shelf stayed open to show them arrive; then it goes the way it would have gone without the dialog
