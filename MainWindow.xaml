@@ -276,9 +276,8 @@
 
                 <!-- idle: clock -->
                 <Grid x:Name="IdleView" Width="118" Height="34" HorizontalAlignment="Center" VerticalAlignment="Top">
-                    <TextBlock x:Name="IdleClock" Text="00:00" FontSize="13.5" FontWeight="SemiBold"
-                               Typography.NumeralAlignment="Tabular"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <local:Digits x:Name="IdleClock" Text="00:00" FontSize="13.5" FontWeight="SemiBold"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Grid>
 
                 <!-- compact now-playing -->
@@ -352,8 +351,8 @@
                     <TextBlock Text="Зарядка" FontSize="13" FontWeight="SemiBold" Margin="16,0,0,0"
                                HorizontalAlignment="Left" VerticalAlignment="Center"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,13,0">
-                        <TextBlock x:Name="ChargeText" Text="100%" FontSize="13" FontWeight="SemiBold" Foreground="#30D158"
-                                   VerticalAlignment="Center"/>
+                        <local:Digits x:Name="ChargeText" Text="100%" FontSize="13" FontWeight="SemiBold" Foreground="#30D158"
+                                      VerticalAlignment="Center"/>
                         <Grid Width="27" Height="13" Margin="7,0,0,0" VerticalAlignment="Center">
                             <Border Width="24" HorizontalAlignment="Left" CornerRadius="4" BorderBrush="#66FFFFFF" BorderThickness="1"/>
                             <Border x:Name="ChargeFill" Width="20" Height="9" Margin="2,0,0,0" CornerRadius="2.5" Background="#30D158"
@@ -464,8 +463,7 @@
                             <ColumnDefinition/>
                             <ColumnDefinition Width="40"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="PosText" Text="0:00" FontSize="11" Foreground="{StaticResource Dim}"
-                                   Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"/>
+                        <local:Digits x:Name="PosText" Text="0:00" FontSize="11" Foreground="{StaticResource Dim}" VerticalAlignment="Center"/>
                         <Border x:Name="SeekArea" Grid.Column="1" Background="Transparent" Cursor="Hand"
                                 MouseLeftButtonDown="Seek_MouseLeftButtonDown" MouseMove="Seek_MouseMove"
                                 MouseLeftButtonUp="Seek_MouseLeftButtonUp" LostMouseCapture="Seek_LostMouseCapture">
@@ -474,8 +472,8 @@
                                 <Border x:Name="SeekFill" CornerRadius="3" Background="White" HorizontalAlignment="Left" Width="0"/>
                             </Grid>
                         </Border>
-                        <TextBlock x:Name="RemText" Grid.Column="2" Text="-0:00" FontSize="11" Foreground="{StaticResource Dim}"
-                                   Typography.NumeralAlignment="Tabular" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                        <local:Digits x:Name="RemText" Grid.Column="2" Text="-0:00" FontSize="11" Foreground="{StaticResource Dim}"
+                                      HorizontalAlignment="Right" VerticalAlignment="Center"/>
                     </Grid>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,8">
@@ -504,8 +502,7 @@
                                 Visibility="Collapsed">
                         <local:Icon x:Name="PlayerHeadsetIcon" Kind="Headphones" Width="14" Height="14"
                                     Fill="{StaticResource Dim}" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="PlayerHeadsetText" FontSize="11" Foreground="{StaticResource Dim}" Margin="5,0,0,0"
-                                   Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"/>
+                        <local:Digits x:Name="PlayerHeadsetText" FontSize="11" Foreground="{StaticResource Dim}" Margin="5,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <!-- the volume the wheel has just moved, across from the headphones: it comes up and fades.
@@ -515,17 +512,15 @@
                                 Opacity="0">
                         <local:Icon x:Name="PlayerVolumeIcon" Kind="Note" Width="14" Height="14"
                                     Fill="{StaticResource Dim}" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="PlayerVolumeText" FontSize="11" Foreground="{StaticResource Dim}" Margin="5,0,0,0"
-                                   Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"/>
+                        <local:Digits x:Name="PlayerVolumeText" FontSize="11" Foreground="{StaticResource Dim}" Margin="5,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Grid>
 
                 <!-- expanded, nothing playing -->
                 <Grid x:Name="IdleBigView" Width="320" Height="124" HorizontalAlignment="Center" VerticalAlignment="Top">
                     <StackPanel Margin="26,0,0,2" HorizontalAlignment="Left" VerticalAlignment="Center">
-                        <TextBlock x:Name="BigClock" Text="00:00" FontSize="46" FontWeight="SemiBold"
-                                   FontFamily="./Fonts/#SF Pro Display, SF Pro Display, Segoe UI Variable Display, Segoe UI"
-                                   Typography.NumeralAlignment="Tabular"/>
+                        <local:Digits x:Name="BigClock" Text="00:00" FontSize="46" FontWeight="SemiBold"
+                                      FontFamily="./Fonts/#SF Pro Display, SF Pro Display, Segoe UI Variable Display, Segoe UI"/>
                         <StackPanel Orientation="Horizontal" Margin="2,-4,0,0">
                             <TextBlock x:Name="BigDate" FontSize="13" Foreground="{StaticResource Dim}"/>
                             <!-- next to the date while "Do not disturb" is on, as on a locked phone -->
@@ -537,22 +532,22 @@
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <local:Icon x:Name="InfoVolIcon" Kind="Loud" Width="16" Height="16"
                                         Fill="{StaticResource Dim}" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="InfoVol" Text="—" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
-                                       VerticalAlignment="Center"/>
+                            <local:Digits x:Name="InfoVol" Text="—" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
+                                          VerticalAlignment="Center"/>
                         </StackPanel>
                         <StackPanel x:Name="InfoHeadsetRow" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0"
                                     Visibility="Collapsed">
                             <local:Icon x:Name="InfoHeadsetIcon" Kind="Headphones" Width="16" Height="16"
                                         Fill="{StaticResource Dim}" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="InfoHeadset" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
-                                       VerticalAlignment="Center"/>
+                            <local:Digits x:Name="InfoHeadset" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
+                                          VerticalAlignment="Center"/>
                         </StackPanel>
                         <StackPanel x:Name="InfoBatRow" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0"
                                     Visibility="Collapsed">
                             <local:Icon Kind="Battery" Width="16" Height="16"
                                         Fill="{StaticResource Dim}" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="InfoBat" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
-                                       VerticalAlignment="Center"/>
+                            <local:Digits x:Name="InfoBat" FontSize="13" FontWeight="SemiBold" Margin="8,0,0,0"
+                                          VerticalAlignment="Center"/>
                         </StackPanel>
                     </StackPanel>
                 </Grid>
@@ -763,8 +758,8 @@
                                 <local:Icon Kind="Size" Width="17" Height="17" Fill="{StaticResource Dim}"
                                             HorizontalAlignment="Left" VerticalAlignment="Center"/>
                                 <TextBlock Text="Размер" Margin="29,0,0,0" VerticalAlignment="Center"/>
-                                <TextBlock x:Name="SizeText" Foreground="{StaticResource Dim}" Typography.NumeralAlignment="Tabular"
-                                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                <local:Digits x:Name="SizeText" Foreground="{StaticResource Dim}"
+                                              HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
                         <Button x:Name="GapRow" Style="{StaticResource RowButton}" Click="Gap_Click">
@@ -772,8 +767,8 @@
                                 <local:Icon Kind="Gap" Width="17" Height="17" Fill="{StaticResource Dim}"
                                             HorizontalAlignment="Left" VerticalAlignment="Center"/>
                                 <TextBlock Text="Отступ от края" Margin="29,0,0,0" VerticalAlignment="Center"/>
-                                <TextBlock x:Name="GapText" Foreground="{StaticResource Dim}" Typography.NumeralAlignment="Tabular"
-                                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                <local:Digits x:Name="GapText" Foreground="{StaticResource Dim}"
+                                              HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
                         </Button>
                         <Grid Height="40" Margin="12,0">

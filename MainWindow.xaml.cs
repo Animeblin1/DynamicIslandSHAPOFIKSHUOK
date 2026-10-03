@@ -141,7 +141,6 @@ public partial class MainWindow : Window
     (int At, int Total) _seekLabel = (-1, -1);
     int _ticks;
     float _lastVolume = -1;
-    int _lastPercent;
     bool _lastMuted, _lastPlugged, _powerKnown;
     int _headset = -1; // charge of the output device in percent; -1: it reports none
     Guid _headsetId; // ...and the device that number belongs to
@@ -780,8 +779,6 @@ public partial class MainWindow : Window
         _lastMuted = muted;
 
         int percent = (int)Math.Round(level * 100);
-        VolText.Down = percent < _lastPercent; // the digits roll the way the volume goes
-        _lastPercent = percent;
         VolIcon.Kind = InfoVolIcon.Kind = muted || percent == 0 ? Glyph.Mute : level < 0.34 ? Glyph.Quiet : level < 0.67 ? Glyph.Mid : Glyph.Loud;
         VolText.Text = percent.ToString();
         InfoVol.Text = muted ? "выкл" : percent + "%";
@@ -1083,7 +1080,6 @@ public partial class MainWindow : Window
     void SetMinutes(int minutes)
     {
         minutes = Math.Clamp(minutes, 1, MaxMinutes);
-        SetupText.Down = minutes < _minutes; // the digits roll the way the number goes
         _minutes = minutes;
         SetupText.Text = _minutes + ":00";
     }

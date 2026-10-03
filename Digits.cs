@@ -23,8 +23,11 @@ public sealed class Digits : ContentControl
         Content = _row;
     }
 
-    /// <summary>New digits arrive from above and the old ones fall away, as a countdown reads; false turns it round.</summary>
-    public bool Down { get; set; } = true;
+    /// <summary>New digits arrive from above and the old ones fall away, as a countdown reads; false turns it round.
+    /// Left unset, they follow the number: up as it grows, down as it shrinks.</summary>
+    public bool? Down { get; set; }
+
+    bool _down = true; // the way the change under way rolls
 
     public string Text
     {
@@ -33,10 +36,23 @@ public sealed class Digits : ContentControl
         {
             value ??= "";
             if (value == _text) return;
+            _down = Down ?? Shrinks(_text, value) ?? _down;
             _text = value;
             // off screen there is nobody to animate for
             Show(value, IsVisible);
         }
+    }
+
+    /// <summary>Whether the number read in <paramref name="next"/> is smaller than the one before; null when either has none or they are equal.
+    /// Only the digits count, so "1:05" against "0:59" or "-3:20" against "-3:19" compare as they read.</summary>
+    static bool? Shrinks(string was, string next)
+    {
+        if (!was.Any(char.IsAsciiDigit) || !next.Any(char.IsAsciiDigit)) return null;
+        string a = string.Concat(was.Where(char.IsAsciiDigit)).TrimStart('0');
+        string b = string.Concat(next.Where(char.IsAsciiDigit)).TrimStart('0');
+        // longer is larger, the same length reads left to right: no number is too long for this
+        int order = a.Length != b.Length ? a.Length.CompareTo(b.Length) : string.CompareOrdinal(a, b);
+        return order == 0 ? null : order > 0;
     }
 
     double Travel => Math.Round(FontSize * 0.5);
@@ -83,7 +99,7 @@ public sealed class Digits : ContentControl
         glyph.Effect = blur;
         blur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(Blur, Ms(220)));
         ((TranslateTransform)glyph.RenderTransform).BeginAnimation(TranslateTransform.YProperty,
-            new DoubleAnimation(Down ? Travel : -Travel, Ms(260)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } });
+            new DoubleAnimation(_down ? Travel : -Travel, Ms(260)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } });
 
         var fade = new DoubleAnimation(0, Ms(200));
         fade.Completed += (_, _) => cell.Children.Remove(glyph);
@@ -103,7 +119,7 @@ public sealed class Digits : ContentControl
         };
         blur.BeginAnimation(BlurEffect.RadiusProperty, sharpen);
         ((TranslateTransform)glyph.RenderTransform).BeginAnimation(TranslateTransform.YProperty,
-            new DoubleAnimation(Down ? -Travel : Travel, 0, Ms(380)) { EasingFunction = ease });
+            new DoubleAnimation(_down ? -Travel : Travel, 0, Ms(380)) { EasingFunction = ease });
         glyph.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Ms(260)));
     }
 
