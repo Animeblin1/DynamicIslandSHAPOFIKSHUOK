@@ -138,6 +138,17 @@ sealed class Shelf
         public IntPtr bmBits;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    struct BITMAPINFOHEADER
+    {
+        public uint biSize;
+        public int biWidth, biHeight;
+        public ushort biPlanes, biBitCount;
+        public uint biCompression, biSizeImage;
+        public int biXPelsPerMeter, biYPelsPerMeter;
+        public uint biClrUsed, biClrImportant;
+    }
+
     [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     interface IShellItemImageFactory
     {
@@ -150,6 +161,9 @@ sealed class Shelf
 
     [DllImport("gdi32.dll")] static extern int GetObject(IntPtr handle, int size, out BITMAP bitmap);
     [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr handle);
+    [DllImport("gdi32.dll")] static extern int GetDIBits(IntPtr dc, IntPtr bitmap, uint start, uint lines, byte[] bits, ref BITMAPINFOHEADER info, uint usage);
+    [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr hwnd, IntPtr dc);
 
     /// <summary>What the shell would show for the file at about <paramref name="size"/> px; null when it has nothing of the kind.</summary>
     static BitmapSource? Picture(string path, int size, int flags)
@@ -162,14 +176,19 @@ sealed class Shelf
             Marshal.ReleaseComObject(factory);
             if (result != 0 || bitmap == IntPtr.Zero) return null;
 
-            // the shell hands over a 32-bit section with its alpha premultiplied, bottom row first
-            if (GetObject(bitmap, Marshal.SizeOf<BITMAP>(), out BITMAP info) == 0 || info.bmBits == IntPtr.Zero || info.bmBitsPixel != 32)
-                return null;
-            int stride = info.bmWidthBytes, height = Math.Abs(info.bmHeight);
-            var source = BitmapSource.Create(info.bmWidth, height, 96, 96, PixelFormats.Pbgra32, null, info.bmBits, stride * height, stride);
-            BitmapSource upright = info.bmHeight > 0 ? new TransformedBitmap(source, new ScaleTransform(1, -1)) : source;
-            // copied out of the section before it is let go, and made shareable with the UI thread
-            var copy = new WriteableBitmap(upright);
+            // a 32-bit picture with its alpha premultiplied. Which of its rows comes first depends on where it came from
+            // (icons bottom first, cached thumbnails top first, both saying bottom first), so its own bits are not read
+            // as they lie: GDI, which knows, copies them out top row first
+            if (GetObject(bitmap, Marshal.SizeOf<BITMAP>(), out BITMAP info) == 0 || info.bmBitsPixel != 32) return null;
+            int width = info.bmWidth, height = Math.Abs(info.bmHeight);
+            var header = new BITMAPINFOHEADER { biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(), biWidth = width, biHeight = -height, biPlanes = 1, biBitCount = 32 };
+            var pixels = new byte[width * 4 * height];
+            IntPtr dc = GetDC(IntPtr.Zero);
+            int rows = GetDIBits(dc, bitmap, 0, (uint)height, pixels, ref header, 0);
+            ReleaseDC(IntPtr.Zero, dc);
+            if (rows != height) return null;
+            // made shareable with the UI thread
+            var copy = BitmapSource.Create(width, height, 96, 96, PixelFormats.Pbgra32, null, pixels, width * 4);
             copy.Freeze();
             return copy;
         }

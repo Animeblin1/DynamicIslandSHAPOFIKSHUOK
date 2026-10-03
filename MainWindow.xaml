@@ -850,11 +850,15 @@
                                 <GradientStop x:Name="ShelfEdgeRight" Color="Black" Offset="1"/>
                             </LinearGradientBrush>
                         </Border.OpacityMask>
-                        <StackPanel x:Name="ShelfTiles" Orientation="Horizontal" Margin="0,8,0,0">
-                            <StackPanel.RenderTransform>
-                                <TranslateTransform x:Name="ShelfMove"/>
-                            </StackPanel.RenderTransform>
-                        </StackPanel>
+                        <!-- the canvas lets the row be as long as it is: laid out in the strip alone, it would be cut to the
+                             strip's width before the wheel moves it, and the tiles past the fifth never seen -->
+                        <Canvas>
+                            <StackPanel x:Name="ShelfTiles" Orientation="Horizontal" Margin="0,8,0,0">
+                                <StackPanel.RenderTransform>
+                                    <TranslateTransform x:Name="ShelfMove"/>
+                                </StackPanel.RenderTransform>
+                            </StackPanel>
+                        </Canvas>
                     </Border>
                 </Grid>
             </Grid>

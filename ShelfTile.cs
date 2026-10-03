@@ -97,16 +97,18 @@ sealed class ShelfTile : Grid
     public void Show()
     {
         if (Item.Picture is not { } picture) return;
-        var image = new Image
-        {
-            Source = picture,
-            Stretch = Item.Photo ? Stretch.UniformToFill : Stretch.Uniform,
-            Width = Item.Photo ? Square : IconSize,
-            Height = Item.Photo ? Square : IconSize,
-        };
+        // a photo is the fill of a square of its own, cut to it with the same corners: an image filling the square
+        // would be laid out larger than it and spill past its top
+        FrameworkElement shown = Item.Photo
+            ? new Border
+            {
+                CornerRadius = new CornerRadius(Radius),
+                Background = new ImageBrush(picture) { Stretch = Stretch.UniformToFill },
+            }
+            : new Image { Source = picture, Stretch = Stretch.Uniform, Width = IconSize, Height = IconSize };
         // it comes in over the empty square instead of popping up in it
-        image.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Ms(220)));
-        _frame.Child = image;
+        shown.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Ms(220)));
+        _frame.Child = shown;
     }
 
     void Hover(bool on)
