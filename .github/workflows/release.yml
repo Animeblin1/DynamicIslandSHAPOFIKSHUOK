@@ -1,9 +1,15 @@
 name: Release
 
-# Pushing a tag like v1.2.0 builds the exe and publishes it as a GitHub release
+# Pushing a tag like v1.2.0 builds the exe and publishes it as a GitHub release.
+# It can also be started by hand from the Actions tab: type the tag to create.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to create, e.g. v1.1.1'
+        required: true
 
 permissions:
   contents: write
@@ -12,7 +18,7 @@ jobs:
   release:
     runs-on: windows-latest
     env:
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v5
 
@@ -36,4 +42,4 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:TAG out/DynamicIsland.exe --title "Dynamic Island $env:TAG" --generate-notes
+        run: gh release create $env:TAG out/DynamicIsland.exe --target ${{ github.sha }} --title "Dynamic Island $env:TAG" --generate-notes
