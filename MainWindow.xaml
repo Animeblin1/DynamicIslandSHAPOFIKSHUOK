@@ -450,6 +450,8 @@
                                 <GradientStop Color="#00000000" Offset="1"/>
                             </LinearGradientBrush>
                         </Canvas.OpacityMask>
+                        <!-- while the lyrics are looked up, faint lines with a sheen running through them hold their place -->
+                        <local:Shimmer x:Name="PlayerLyricWait" Width="340" Height="70" Opacity="0"/>
                         <Canvas x:Name="PlayerLyricLines">
                             <Canvas.RenderTransform>
                                 <TranslateTransform x:Name="PlayerLyricMove"/>

@@ -165,6 +165,7 @@ public partial class MainWindow : Window
     double[] _playerMiddles = []; // where each row's middle sits in the column of lines
     int _playerIndex = -1;
     bool _playerRoom; // the expanded player has made room for lyrics
+    bool _playerWaiting; // ...and holds it with placeholder lines while they are looked up
     IntPtr _hwnd;
     int _shellMessage;
 
@@ -400,6 +401,7 @@ public partial class MainWindow : Window
         _current = target;
         // how tall the player opens depends on whether it has lyrics to show
         if (target == View.MediaBig) UpdatePlayerLyric(true);
+        else WaitPlayerLyric(false);
         Dims to = SizeOf(target);
         bool growing = to.W * to.H >= from.W * from.H;
         // overshoot a little when growing, settle firmly when shrinking
@@ -434,7 +436,9 @@ public partial class MainWindow : Window
     {
         Duration time = Ms(animate ? 450 : 0);
         _accent.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(Accent, time));
-        Glow.Tint(Settings.Accent is { } own ? MediaService.Around(own) : _media.Palette, time);
+        Color[] palette = Settings.Accent is { } own ? MediaService.Around(own) : _media.Palette;
+        Glow.Tint(palette, time);
+        PlayerLyricWait.Tint(palette, time);
     }
 
     bool EqVisible => _current is View.Media or View.Toast or View.MediaBig;
@@ -1394,6 +1398,7 @@ public partial class MainWindow : Window
             _h.Tune(280, 30); // the pill glides to its new height, no bounce
             SetTargets();
         }
+        WaitPlayerLyric(room && lines.Length == 0);
         if (lines.Length == 0) return;
 
         TimeSpan at = _media.Position + LyricLead;
@@ -1421,6 +1426,18 @@ public partial class MainWindow : Window
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         });
+    }
+
+    /// <summary>Puts placeholder lines in the room held for the lyrics, or takes them away as the lyrics come (or do not).</summary>
+    void WaitPlayerLyric(bool on)
+    {
+        if (on == _playerWaiting) return;
+        _playerWaiting = on;
+        if (on) PlayerLyricWait.Run(true);
+        var fade = new DoubleAnimation(on ? 1 : 0, Ms(on ? 300 : 200));
+        // the sheen stops once it is out of sight
+        if (!on) fade.Completed += (_, _) => { if (!_playerWaiting) PlayerLyricWait.Run(false); };
+        PlayerLyricWait.BeginAnimation(OpacityProperty, fade);
     }
 
     /// <summary>Stacks the whole song in a column; the box shows three lines of it at a time.</summary>
