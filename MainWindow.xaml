@@ -13,6 +13,7 @@
         <SolidColorBrush x:Key="Orange" Color="#FF9F0A"/>
         <SolidColorBrush x:Key="Green" Color="#30D158"/>
         <SolidColorBrush x:Key="Red" Color="#FF453A"/>
+        <SolidColorBrush x:Key="Indigo" Color="#7D7AFF"/>
 
         <LinearGradientBrush x:Key="ArtPlaceholder" StartPoint="0,0" EndPoint="1,1">
             <GradientStop Color="#48484A" Offset="0"/>
@@ -104,6 +105,8 @@
             </Setter>
         </Style>
 
+        <local:ChipCorners x:Key="ChipCorners"/>
+
         <!-- small filled pill: timer presets, and the start button with its own background -->
         <Style x:Key="ChipButton" TargetType="Button">
             <Setter Property="Focusable" Value="False"/>
@@ -117,9 +120,9 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Grid>
-                            <Border CornerRadius="14" Background="{TemplateBinding Background}"/>
-                            <Border x:Name="Shine" CornerRadius="14" Background="White" Opacity="0"/>
-                            <Border x:Name="Press" CornerRadius="14" Background="White" Opacity="0"/>
+                            <Border CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource ChipCorners}}" Background="{TemplateBinding Background}"/>
+                            <Border x:Name="Shine" CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource ChipCorners}}" Background="White" Opacity="0"/>
+                            <Border x:Name="Press" CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource ChipCorners}}" Background="White" Opacity="0"/>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Grid>
                         <ControlTemplate.Triggers>
@@ -156,6 +159,21 @@
                                 </Trigger.ExitActions>
                             </Trigger>
                         </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- a place to click with nothing of its own drawn: its content says what it is -->
+        <Style x:Key="PlainButton" TargetType="Button">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -224,7 +242,8 @@
     <Grid x:Name="Root" Width="620" Height="410" Opacity="0"
           HorizontalAlignment="Center" VerticalAlignment="Top" RenderTransformOrigin="0.5,0"
           MouseLeftButtonDown="Root_MouseLeftButtonDown" MouseLeftButtonUp="Root_MouseLeftButtonUp"
-          MouseRightButtonUp="Root_MouseRightButtonUp" MouseUp="Root_MouseUp" MouseWheel="Root_MouseWheel">
+          MouseRightButtonUp="Root_MouseRightButtonUp" MouseUp="Root_MouseUp" MouseWheel="Root_MouseWheel"
+          AllowDrop="True" DragEnter="Root_DragOver" DragOver="Root_DragOver" DragLeave="Root_DragLeave" Drop="Root_Drop">
         <Grid.RenderTransform>
             <TransformGroup>
                 <TranslateTransform x:Name="RootMove"/>
@@ -343,6 +362,24 @@
                                     HorizontalAlignment="Right" VerticalAlignment="Center"/>
                         </Grid>
                     </StackPanel>
+                </Grid>
+
+                <!-- "Do not disturb" turned on or off -->
+                <Grid x:Name="FocusView" Width="236" Height="34" HorizontalAlignment="Center" VerticalAlignment="Top">
+                    <local:Icon x:Name="FocusIcon" Kind="Moon" Width="18" Height="18" Fill="{StaticResource Indigo}"
+                                HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0,0,0"
+                                RenderTransformOrigin="0.5,0.5">
+                        <local:Icon.RenderTransform>
+                            <TransformGroup>
+                                <ScaleTransform x:Name="FocusSize"/>
+                                <RotateTransform x:Name="FocusTurn"/>
+                            </TransformGroup>
+                        </local:Icon.RenderTransform>
+                    </local:Icon>
+                    <TextBlock Text="Не беспокоить" FontSize="13" FontWeight="SemiBold" Margin="39,0,0,0"
+                               HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="FocusText" Text="Вкл." FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Indigo}"
+                               HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,15,0"/>
                 </Grid>
 
                 <!-- track changed -->
@@ -489,7 +526,12 @@
                         <TextBlock x:Name="BigClock" Text="00:00" FontSize="46" FontWeight="SemiBold"
                                    FontFamily="./Fonts/#SF Pro Display, SF Pro Display, Segoe UI Variable Display, Segoe UI"
                                    Typography.NumeralAlignment="Tabular"/>
-                        <TextBlock x:Name="BigDate" FontSize="13" Foreground="{StaticResource Dim}" Margin="2,-4,0,0"/>
+                        <StackPanel Orientation="Horizontal" Margin="2,-4,0,0">
+                            <TextBlock x:Name="BigDate" FontSize="13" Foreground="{StaticResource Dim}"/>
+                            <!-- next to the date while "Do not disturb" is on, as on a locked phone -->
+                            <local:Icon x:Name="InfoFocus" Kind="Moon" Width="13" Height="13" Fill="{StaticResource Indigo}"
+                                        Margin="6,1,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+                        </StackPanel>
                     </StackPanel>
                     <StackPanel Margin="0,0,24,0" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -580,7 +622,7 @@
                 </Grid>
 
                 <!-- right-click menu -->
-                <Grid x:Name="MenuView" Width="300" Height="208" HorizontalAlignment="Center" VerticalAlignment="Top">
+                <Grid x:Name="MenuView" Width="300" Height="248" HorizontalAlignment="Center" VerticalAlignment="Top">
                     <local:RowList Margin="10,14,10,0">
                         <TextBlock Text="DYNAMIC ISLAND" FontSize="10.5" FontWeight="SemiBold" Foreground="#66FFFFFF"
                                    Margin="12,0,0,6"/>
@@ -591,6 +633,18 @@
                                 <TextBlock Text="Таймер" Margin="29,0,0,0" VerticalAlignment="Center"/>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <local:Digits x:Name="MenuTimer" Foreground="{StaticResource Orange}" VerticalAlignment="Center"/>
+                                    <local:Icon Kind="Chevron" Width="11" Height="11"
+                                                Fill="{StaticResource Dim}" Margin="8,1,0,0" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Button Style="{StaticResource RowButton}" Click="ShelfRow_Click">
+                            <Grid>
+                                <local:Icon Kind="Tray" Width="17" Height="17" Fill="{StaticResource Dim}"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                <TextBlock Text="Полка" Margin="29,0,0,0" VerticalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <local:Digits x:Name="MenuShelf" Foreground="{StaticResource Dim}" VerticalAlignment="Center"/>
                                     <local:Icon Kind="Chevron" Width="11" Height="11"
                                                 Fill="{StaticResource Dim}" Margin="8,1,0,0" VerticalAlignment="Center"/>
                                 </StackPanel>
@@ -753,6 +807,56 @@
                         </UniformGrid>
                     </local:RowList>
                 </Grid>
+
+                <!-- the shelf: files put down on the island, to be dragged out somewhere else. A file dragged over the
+                     island opens it, the place to drop it outlined -->
+                <Grid x:Name="ShelfView" Width="380" Height="136" HorizontalAlignment="Center" VerticalAlignment="Top">
+                    <Grid Height="22" Margin="22,12,16,0" VerticalAlignment="Top">
+                        <TextBlock Text="ПОЛКА" FontSize="10.5" FontWeight="SemiBold" Foreground="#66FFFFFF"
+                                   VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <!-- files picked from the computer, for when there is nothing at hand to drag -->
+                            <Button Style="{StaticResource ChipButton}" Width="22" Height="22" Margin="0,0,6,0" Click="ShelfAdd_Click">
+                                <local:Icon Kind="Plus" Width="12" Height="12" Fill="{StaticResource Dim}"/>
+                            </Button>
+                            <Button x:Name="ShelfClear" Style="{StaticResource ChipButton}" Height="22" Margin="0" FontSize="11"
+                                    Click="ShelfClear_Click">
+                                <TextBlock Text="Очистить" Margin="10,0" Foreground="{StaticResource Dim}"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                    <Rectangle x:Name="ShelfZone" Margin="14,40,14,12" RadiusX="16" RadiusY="16"
+                               Stroke="White" StrokeThickness="1.5" StrokeDashArray="3 2.5" Fill="#0AFFFFFF" Opacity="0"
+                               IsHitTestVisible="False"/>
+                    <!-- the empty shelf is one place to click: it opens the files of the computer -->
+                    <Button x:Name="ShelfHint" Style="{StaticResource PlainButton}" Margin="14,40,14,12" Click="ShelfAdd_Click"
+                            MouseEnter="ShelfHint_MouseHover" MouseLeave="ShelfHint_MouseHover">
+                        <StackPanel>
+                            <local:Icon Kind="Tray" Width="22" Height="22" Fill="{StaticResource Dim}"/>
+                            <TextBlock x:Name="ShelfHintText" Text="Перетащите сюда файлы" FontSize="12" Foreground="{StaticResource Dim}"
+                                       Margin="0,6,0,0" HorizontalAlignment="Center"/>
+                            <TextBlock x:Name="ShelfHintMore" Text="или нажмите, чтобы выбрать" FontSize="11" Foreground="#66FFFFFF"
+                                       Margin="0,1,0,0" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <!-- room above the tiles for the crosses on their corners; more than fit are scrolled by the wheel -->
+                    <Border x:Name="ShelfStrip" Margin="18,36,18,10" ClipToBounds="True">
+                        <!-- the row fades out at an end it goes on past -->
+                        <Border.OpacityMask>
+                            <LinearGradientBrush MappingMode="Absolute" StartPoint="0,0" EndPoint="344,0">
+                                <GradientStop x:Name="ShelfEdgeLeft" Color="Black" Offset="0"/>
+                                <GradientStop Color="Black" Offset="0.05"/>
+                                <GradientStop Color="Black" Offset="0.95"/>
+                                <GradientStop x:Name="ShelfEdgeRight" Color="Black" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.OpacityMask>
+                        <StackPanel x:Name="ShelfTiles" Orientation="Horizontal" Margin="0,8,0,0">
+                            <StackPanel.RenderTransform>
+                                <TranslateTransform x:Name="ShelfMove"/>
+                            </StackPanel.RenderTransform>
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </Grid>
         </Grid>
 
@@ -771,12 +875,21 @@
                     <TranslateTransform x:Name="BubbleMove"/>
                 </TransformGroup>
             </Border.RenderTransform>
-            <Grid x:Name="BubbleBody">
-                <local:Ring x:Name="BubbleRing" Width="16" Height="16" Stroke="{StaticResource Orange}"
-                            HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                <local:Digits x:Name="BubbleText" Text="25:00" FontSize="12.5" FontWeight="SemiBold"
-                              Foreground="{StaticResource Orange}"
-                              HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <!-- it carries the timer, the shelf or both side by side; the code sets its width to what it carries -->
+            <Grid x:Name="BubbleBody" ClipToBounds="True">
+                <Grid x:Name="BubbleTimer" Width="76" HorizontalAlignment="Left">
+                    <local:Ring x:Name="BubbleRing" Width="16" Height="16" Stroke="{StaticResource Orange}"
+                                HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <local:Digits x:Name="BubbleText" Text="25:00" FontSize="12.5" FontWeight="SemiBold"
+                                  Foreground="{StaticResource Orange}"
+                                  HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                </Grid>
+                <StackPanel x:Name="BubbleShelf" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Margin="0,0,13,0">
+                    <local:Icon Kind="Tray" Width="15" Height="15" VerticalAlignment="Center"/>
+                    <local:Digits x:Name="BubbleShelfText" Text="0" FontSize="12.5" FontWeight="SemiBold"
+                                  VerticalAlignment="Center" Margin="4,0,0,0"/>
+                </StackPanel>
             </Grid>
         </Border>
     </Grid>

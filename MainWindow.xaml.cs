@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -14,10 +15,10 @@ namespace DynamicIsland;
 
 public partial class MainWindow : Window
 {
-    enum View { Idle, Media, Timer, Volume, Charge, Toast, Notice, MediaBig, IdleBig, TimerBig, TimerSet, Menu, Settings, Look }
+    enum View { Idle, Media, Timer, Volume, Charge, Focus, Toast, Notice, MediaBig, IdleBig, TimerBig, TimerSet, Menu, Settings, Look, Shelf }
 
     /// <summary>What a click has opened; None is the compact pill.</summary>
-    enum Panel { None, Player, Timer, TimerSet, Menu, Settings, Look }
+    enum Panel { None, Player, Timer, TimerSet, Menu, Settings, Look, Shelf }
 
     readonly record struct Dims(double W, double H, double R);
 
@@ -28,22 +29,31 @@ public partial class MainWindow : Window
         [View.Timer] = new(132, 34, 17),
         [View.Volume] = new(250, 34, 17),
         [View.Charge] = new(230, 34, 17),
+        [View.Focus] = new(236, 34, 17),
         [View.Toast] = new(340, 68, 30),
         [View.Notice] = new(320, 64, 29),
         [View.MediaBig] = new(380, PlayerHeight, 40),
         [View.IdleBig] = new(320, 124, 38),
         [View.TimerBig] = new(330, 92, 40),
         [View.TimerSet] = new(300, 190, 38),
-        [View.Menu] = new(300, 208, 34),
+        [View.Menu] = new(300, 248, 34),
         [View.Settings] = new(320, 334, 34),
         [View.Look] = new(320, 208, 34),
+        [View.Shelf] = new(380, 136, 34),
     };
 
     const double HostWidth = 620;
     static readonly int[] Scales = [85, 100, 115, 130]; // percent: the sizes to pick from
     static readonly int[] Gaps = [0, 4, 8, 12, 16, 24]; // px between the top of the screen and the island
     const double SourcePause = 0.25; // seconds between two turns to another app: a wheel sends its notches in bursts
-    const double BubbleWidth = 78, BubbleGap = 7; // the split-off bubble and the gap between it and the pill
+    const double BubbleGap = 7; // between the split-off bubble and the pill
+    const double CarryTimer = 78, CarryShelf = 54; // width of the bubble carrying either...
+    const double CarryBoth = 8; // ...and how much narrower it is than the two together, when it carries both
+    const double RideLeast = 0.5, RideMost = 1.15; // how far the content of the island is scaled as it rides a change of shape
+    const double MotionPace = 650; // px per second of the island's edges that blur what it shows by 1 px...
+    const double MotionMost = 4; // ...up to this
+    const double ShelfStep = ShelfTile.Wide + 4; // a tile and the gap after it
+    const double ShelfFade = 16; // px of tiles past an end of the row by which that end has faded out fully
     const int MaxMinutes = 99; // the countdown always reads mm:ss
     const int HeadsetEvery = 300; // ticks between looks at the headphones' charge: it moves slowly
     const int HeadsetLow = 20, HeadsetCritical = 10; // percent: passing each on the way down is worth a warning
@@ -75,6 +85,7 @@ public partial class MainWindow : Window
     static readonly TimeSpan BubbleLinger = TimeSpan.FromSeconds(2.5); // ...longer when it was opened from the bubble
     static readonly TimeSpan AwayFor = TimeSpan.FromSeconds(5); // a middle click sends the island off screen for this long
     static readonly TimeSpan PushFor = TimeSpan.FromMilliseconds(140); // the bar stays stretched this long after the last push
+    static readonly TimeSpan DropLinger = TimeSpan.FromMilliseconds(150);
     static readonly CultureInfo Ru = new("ru-RU");
 
     readonly Dictionary<View, FrameworkElement> _views;
@@ -82,6 +93,8 @@ public partial class MainWindow : Window
     readonly Spring _seekX = new(0), _seekH = new(SeekThin);
     readonly Spring _split = new(0); // 0: the bubble is tucked behind the pill, 1: it stands on its own
     readonly Spring _bubbleScale = new(1); // the bubble answers the pointer by itself, not along with the pill
+    readonly Spring _carryTimer = new(0), _carryShelf = new(0); // 1: the bubble carries the timer, the shelf
+    readonly Spring _shelfScroll = new(0); // px the tiles are moved left by the wheel
     readonly Spring _push = new(0); // px the volume bar is stretched past its end
     readonly Spring _size = new(Settings.Scale / 100.0), _gap = new(Settings.Gap); // the looks picked in the menu
     readonly RectangleGeometry _clip = new();
@@ -95,9 +108,12 @@ public partial class MainWindow : Window
     readonly LyricsService _lyrics = new();
     readonly NetworkService _network;
     readonly Countdown _timer = new();
+    readonly Shelf _shelf;
+    readonly Dictionary<Shelf.Item, ShelfTile> _tiles = new();
+    readonly BlurEffect _motion = new() { Radius = 0, RenderingBias = RenderingBias.Performance }; // over the content while the island changes shape
     readonly Alarm _alarm = new();
     readonly Stopwatch _time = Stopwatch.StartNew();
-    readonly DispatcherTimer _tick, _transientTimer, _collapseTimer, _awayTimer, _pushTimer;
+    readonly DispatcherTimer _tick, _transientTimer, _collapseTimer, _awayTimer, _pushTimer, _dropTimer;
     readonly View? _forced;
     readonly double _forcedTimer;
 
@@ -107,10 +123,19 @@ public partial class MainWindow : Window
     bool _hover, _pressed, _hidden, _animating, _eqRunning, _seekRunning, _scrubbing;
     bool _away; // sent off screen by a middle click
     bool _bubbleHover, _bubblePressed;
+    bool _morph; // the island is changing from one view to another: what it shows rides the shape
     bool _ringing; // the countdown ran out and the alarm is still going
     bool _urgent; // ...and it is in its last seconds
+    bool? _quiet; // "Do not disturb" is on; null until it is first read
+    bool _dropping; // files are being dragged over the island
+    bool _carrying; // ...or out of it, from the shelf
+    bool _picking; // files are being picked for the shelf in the system's dialog
+    Panel _beforeDrop; // what was open before the drag came over
+    ShelfTile? _tilePressed; // the tile the pointer went down on...
+    Point _tileFrom; // ...and where
     bool _playShown, _timerPauseShown = true; // which of the two icons each button shows
     int _minutes = 25, _timerShown = -1;
+    int _shelfShown; // files the counters read
     double _lastFrame, _eqFrame, _seekFrame;
     double _scrub, _scrubUntil; // fraction under the pointer; it stays on the bar until the player reports the jump
     (int At, int Total) _seekLabel = (-1, -1);
@@ -157,6 +182,7 @@ public partial class MainWindow : Window
             [View.Timer] = TimerView,
             [View.Volume] = VolumeView,
             [View.Charge] = ChargeView,
+            [View.Focus] = FocusView,
             [View.Toast] = ToastView,
             [View.Notice] = NoticeView,
             [View.MediaBig] = MediaBigView,
@@ -166,11 +192,13 @@ public partial class MainWindow : Window
             [View.Menu] = MenuView,
             [View.Settings] = SettingsView,
             [View.Look] = LookView,
+            [View.Shelf] = ShelfView,
         };
         foreach (FrameworkElement v in _views.Values)
         {
             v.RenderTransformOrigin = new Point(0.5, 0.5);
-            v.RenderTransform = new ScaleTransform(1, 1);
+            // its own fade in and out, then the ride on the shape of the pill
+            v.RenderTransform = new TransformGroup { Children = { new ScaleTransform(1, 1), new ScaleTransform(1, 1), new TranslateTransform() } };
             v.Visibility = Visibility.Collapsed;
             v.Opacity = 0;
         }
@@ -205,6 +233,9 @@ public partial class MainWindow : Window
         _split.Tune(140, 17); // unhurried: the neck between the two has to be seen stretching and snapping
         _bubbleScale.Tune(320, 20);
         _push.Tune(420, 18); // loose enough to wobble once it is let go
+        _carryTimer.Tune(260, 24);
+        _carryShelf.Tune(260, 24);
+        _shelfScroll.Tune(260, 30);
         _size.Tune(240, 26);
         _gap.Tune(240, 26);
 
@@ -221,6 +252,12 @@ public partial class MainWindow : Window
         _lyrics.Changed += () => UpdateLyric();
         _network = new NetworkService(Dispatcher);
         _network.Changed += OnNetworkChanged;
+        _shelf = new Shelf(Dispatcher);
+        _shelf.Changed += SyncShelf;
+        _shelf.Pictured += item =>
+        {
+            if (_tiles.TryGetValue(item, out ShelfTile? tile)) tile.Show();
+        };
 
         _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _tick.Tick += (_, _) => Tick();
@@ -236,7 +273,8 @@ public partial class MainWindow : Window
         _collapseTimer.Tick += (_, _) =>
         {
             _collapseTimer.Stop();
-            if (_hover) return;
+            // the dialog that picks files for the shelf takes the pointer away: the shelf stays to receive them
+            if (_hover || _picking) return;
             _panel = Panel.None;
             UpdateView();
         };
@@ -253,6 +291,16 @@ public partial class MainWindow : Window
             _pushTimer.Stop();
             _push.Target = 0;
             Animate();
+        };
+        // the drag goes from one element of the island to the next as it moves: only one that is not followed by
+        // another coming in has really left
+        _dropTimer = new DispatcherTimer { Interval = DropLinger };
+        _dropTimer.Tick += (_, _) =>
+        {
+            _dropTimer.Stop();
+            EndDrop();
+            _panel = _beforeDrop;
+            UpdateView();
         };
 
         Loaded += OnLoaded;
@@ -294,6 +342,7 @@ public partial class MainWindow : Window
         UpdateSwitches(false);
         UpdateLook();
         SyncAccent(false);
+        SyncShelf();
         Intro();
         _tick.Start();
         if (_forcedTimer > 0) StartTimer(TimeSpan.FromSeconds(_forcedTimer));
@@ -330,6 +379,7 @@ public partial class MainWindow : Window
             Panel.Menu => View.Menu,
             Panel.Settings => View.Settings,
             Panel.Look => View.Look,
+            Panel.Shelf => View.Shelf,
             Panel.TimerSet => View.TimerSet,
             Panel.Timer when _timer.Active => View.TimerBig,
             Panel.Timer or Panel.Player => _media.HasTrack ? View.MediaBig : View.IdleBig,
@@ -354,6 +404,7 @@ public partial class MainWindow : Window
         _w.Tune(growing ? 300 : 340, growing ? 22 : 30);
         _h.Tune(growing ? 300 : 340, growing ? 22 : 30);
 
+        _morph = true;
         Swap(_views[target]);
         SetTargets();
 
@@ -422,8 +473,22 @@ public partial class MainWindow : Window
         _w.Target = d.W;
         _h.Target = d.H;
         _r.Target = d.R;
-        // the timer splits off whenever the compact pill is showing something else
-        _split.Target = _timer.Active && compact && _current != View.Timer ? 1 : 0;
+        // the timer splits off whenever the compact pill is showing something else, and the shelf whenever it holds anything
+        bool timer = _timer.Active && _current != View.Timer, shelf = _shelf.Items.Count > 0;
+        bool split = compact && (timer || shelf);
+        _split.Target = split ? 1 : 0;
+        if (split)
+        {
+            _carryTimer.Target = timer ? 1 : 0;
+            _carryShelf.Target = shelf ? 1 : 0;
+            // tucked away, it comes out already the width of what it carries
+            if (_split.Value < 0.05)
+            {
+                _carryTimer.Value = _carryTimer.Target;
+                _carryShelf.Value = _carryShelf.Target;
+                _carryTimer.Velocity = _carryShelf.Velocity = 0;
+            }
+        }
         // a ringing timer shows itself even over a fullscreen app. Out of sight is past the gap above it too,
         // counted in the island's own px
         _offset.Target = (_hidden || _away) && !_ringing ? -(d.H + 30 + Settings.Gap * 100.0 / Settings.Scale) : 0;
@@ -458,6 +523,9 @@ public partial class MainWindow : Window
         moving |= _gap.Advance(dt);
         moving |= _split.Advance(dt);
         moving |= _bubbleScale.Advance(dt);
+        moving |= _carryTimer.Advance(dt);
+        moving |= _carryShelf.Advance(dt);
+        moving |= _shelfScroll.Advance(dt);
         moving |= _push.Advance(dt);
         ApplyShape();
 
@@ -465,6 +533,7 @@ public partial class MainWindow : Window
         {
             CompositionTarget.Rendering -= OnFrame;
             _animating = false;
+            Settle();
         }
     }
 
@@ -488,6 +557,15 @@ public partial class MainWindow : Window
             MediaBigView.Height = Math.Max(h, PlayerHeight);
             PlayerLyricBox.Opacity = Math.Clamp((h - PlayerHeight) / PlayerLyricRoom * 2 - 1, 0, 1);
         }
+        if (_morph) Ride(w, h);
+        // the faster the edges go, the more what is inside smears, the way anything quick does to the eye
+        double smear = _morph ? Math.Min(Math.Sqrt(_w.Velocity * _w.Velocity + _h.Velocity * _h.Velocity) / MotionPace, MotionMost) : 0;
+        _motion.Radius = smear;
+        Host.Effect = smear > 0.1 ? _motion : null;
+        double scrolled = _shelfScroll.Value, ahead = ShelfOverflow - scrolled;
+        ShelfMove.X = -scrolled;
+        ShelfEdgeLeft.Color = Edge(scrolled);
+        ShelfEdgeRight.Color = Edge(ahead);
 
         _clip.Rect = pill;
         _clip.RadiusX = _clip.RadiusY = r;
@@ -505,22 +583,58 @@ public partial class MainWindow : Window
         RootMove.Y = _offset.Value + _gap.Value / size;
 
         // the bubble rides the pill's right end: inside it, then out past the gap, its content fading in as it comes free.
-        // It follows that end as the pill swells under the pointer, but keeps its own size
+        // It follows that end as the pill swells under the pointer, but keeps its own size. It is as wide as what it
+        // carries, and gets wider or narrower as one of the two comes or goes, that one fading with it
         double split = _split.Value, bubble = Math.Max(_bubbleScale.Value, 0.01);
+        double timer = Math.Max(_carryTimer.Value, 0), shelf = Math.Max(_carryShelf.Value, 0);
+        double wide = Math.Max(CarryTimer * timer + CarryShelf * shelf - CarryBoth * timer * shelf, Bubble.Height);
         bool apart = split > 0.01;
         Bubble.Visibility = apart ? Visibility.Visible : Visibility.Collapsed;
-        BubbleMove.X = (w * scale - BubbleWidth) / 2 + (BubbleGap + BubbleWidth) * split;
+        Bubble.Width = wide;
+        BubbleTimer.Opacity = Math.Clamp(timer * 2 - 1, 0, 1);
+        BubbleShelf.Opacity = Math.Clamp(shelf * 2 - 1, 0, 1);
+        BubbleMove.X = (w * scale - wide) / 2 + (BubbleGap + wide) * split;
         BubbleScale.ScaleX = BubbleScale.ScaleY = bubble;
         BubbleBody.Opacity = Math.Clamp(split * 4 - 3, 0, 1);
         // until then the pill's end is the pill's to click
         Bubble.IsHitTestVisible = split > 0.75;
 
         // the body is drawn in the pill's own scale, so the bubble is measured in it too
-        double past = ((BubbleGap + BubbleWidth) * split - BubbleWidth) / scale; // of its left end beyond the pill's right one
+        double past = ((BubbleGap + wide) * split - wide) / scale; // of its left end beyond the pill's right one
         Body.Shape(pill, r, apart
-            ? new Rect(pill.Right + past, 0, BubbleWidth * bubble / scale, Bubble.Height * bubble / scale)
+            ? new Rect(pill.Right + past, 0, wide * bubble / scale, Bubble.Height * bubble / scale)
             : Rect.Empty);
     }
+
+    /// <summary>What the island shows follows its shape as it changes: each view keeps to the middle of the pill and grows or shrinks with it.</summary>
+    void Ride(double w, double h)
+    {
+        foreach (FrameworkElement v in _views.Values)
+        {
+            if (v.Visibility != Visibility.Visible) continue;
+            Ride(v, Math.Clamp(Math.Min(w / v.Width, h / v.Height), RideLeast, RideMost), (h - v.Height) / 2);
+        }
+    }
+
+    static void Ride(FrameworkElement v, double scale, double down)
+    {
+        TransformCollection parts = ((TransformGroup)v.RenderTransform).Children;
+        var size = (ScaleTransform)parts[1];
+        size.ScaleX = size.ScaleY = scale;
+        ((TranslateTransform)parts[2]).Y = down;
+    }
+
+    // the shape has come to rest: everything stands where it is laid out, and sharp
+    void Settle()
+    {
+        if (!_morph) return;
+        _morph = false;
+        foreach (FrameworkElement v in _views.Values) Ride(v, 1, 0);
+        Host.Effect = null;
+    }
+
+    /// <summary>The view's own scale, the one it fades in and out with.</summary>
+    static ScaleTransform Fade(FrameworkElement v) => (ScaleTransform)((TransformGroup)v.RenderTransform).Children[0];
 
     void Swap(FrameworkElement next)
     {
@@ -536,7 +650,7 @@ public partial class MainWindow : Window
         v.Effect = blur;
         blur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(12, Ms(170)));
 
-        var scale = (ScaleTransform)v.RenderTransform;
+        ScaleTransform scale = Fade(v);
         var shrink = new DoubleAnimation(0.9, Ms(170)) { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn } };
         scale.BeginAnimation(ScaleTransform.ScaleXProperty, shrink);
         scale.BeginAnimation(ScaleTransform.ScaleYProperty, shrink);
@@ -569,7 +683,7 @@ public partial class MainWindow : Window
         };
         blur.BeginAnimation(BlurEffect.RadiusProperty, sharpen);
 
-        var scale = (ScaleTransform)v.RenderTransform;
+        ScaleTransform scale = Fade(v);
         var grow = new DoubleAnimation(1, Ms(380)) { BeginTime = delay, EasingFunction = ease };
         if (fresh) grow.From = 0.86;
         scale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
@@ -589,7 +703,11 @@ public partial class MainWindow : Window
         if (_ticks % HeadsetEvery == 1) ReadHeadset(_audio.Device);
         UpdateLyric();
         UpdateTimer();
-        if (_ticks % 5 == 0) CheckFullscreen();
+        if (_ticks % 5 == 0)
+        {
+            CheckFullscreen();
+            PollQuiet();
+        }
         if (_ticks % 10 == 0)
         {
             UpdateClock();
@@ -767,6 +885,30 @@ public partial class MainWindow : Window
             Notify(icon, Brushes.White, device.Kind.Length > 0 ? device.Kind : "Аудиоустройство", name);
         else if (known && (Passed(HeadsetLow) || Passed(HeadsetCritical)))
             Notify(icon, red, "Низкий заряд", name);
+    }
+
+    /// <summary>"Do not disturb" turned on or off: the moon comes up in the pill, and stays by the date in the expanded clock.</summary>
+    void PollQuiet()
+    {
+        if (Native.DoNotDisturb() is not bool quiet || quiet == _quiet) return;
+        bool first = _quiet == null;
+        _quiet = quiet;
+        InfoFocus.Visibility = quiet ? Visibility.Visible : Visibility.Collapsed;
+        // the state it was in at start is no news
+        if (first) return;
+
+        FocusIcon.Fill = FocusText.Foreground = (Brush)FindResource(quiet ? "Indigo" : "Dim");
+        FocusText.Text = quiet ? "Вкл." : "Выкл.";
+        ShowTransient(View.Focus, 2.2);
+
+        // on, the moon swings up into place; off, it sinks back and shrinks a little. Both as the view comes in
+        TimeSpan delay = TimeSpan.FromMilliseconds(70);
+        IEasingFunction ease = quiet ? new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.5 } : new CubicEase { EasingMode = EasingMode.EaseOut };
+        var swing = new DoubleAnimation(quiet ? -80 : 0, quiet ? 0 : 24, Ms(quiet ? 620 : 420)) { BeginTime = delay, EasingFunction = ease };
+        var grow = new DoubleAnimation(quiet ? 0.4 : 1, quiet ? 1 : 0.84, Ms(quiet ? 520 : 420)) { BeginTime = delay, EasingFunction = ease };
+        FocusTurn.BeginAnimation(RotateTransform.AngleProperty, swing);
+        FocusSize.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+        FocusSize.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
     }
 
     // ───────────────────────── notices ─────────────────────────
@@ -996,10 +1138,11 @@ public partial class MainWindow : Window
     void Bubble_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (!_bubblePressed) return;
-        // the bubble opens its own activity, not the pill's
+        // the bubble opens its own activity, not the pill's: the timer or the shelf, whichever half of it was clicked
         e.Handled = true;
         _bubblePressed = false;
-        Open(Panel.Timer);
+        bool timer = _carryTimer.Target > 0 && (_carryShelf.Target == 0 || e.GetPosition(Bubble).X < CarryTimer - CarryBoth / 2);
+        Open(timer ? Panel.Timer : Panel.Shelf);
         UpdateView();
         SetTargets();
 
@@ -1536,11 +1679,272 @@ public partial class MainWindow : Window
         else if (_current == View.TimerSet) SetMinutes(_minutes + step);
         else if (_current == View.Look && SizeRow.IsMouseOver) SetScale(Step(Scales, Settings.Scale, step, false));
         else if (_current == View.Look && GapRow.IsMouseOver) SetGap(Step(Gaps, Settings.Gap, step, false));
+        // more files than fit: down goes on to the later ones
+        else if (_current == View.Shelf && ShelfOverflow > 0) ScrollShelf(-step);
         // over the open player it is the music that gets louder, not everything else along with it
         else if (_current == View.MediaBig && Settings.AppVolume && _audio.Nudge(_media.Source, step * 0.02f, out float level))
             ShowPlayerVolume(level, false, true);
         else if (VolumeAtEnd(up)) PushVolume(up);
         else _audio.Nudge(step * 0.02f);
+    }
+
+    // ───────────────────────── shelf ─────────────────────────
+
+    /// <summary>Lays the tiles out to match the shelf: new ones grow in at the end, the ones taken off shrink out of the row.</summary>
+    void SyncShelf()
+    {
+        foreach ((Shelf.Item item, ShelfTile tile) in _tiles.ToList())
+        {
+            if (_shelf.Items.Contains(item)) continue;
+            _tiles.Remove(item);
+            Leave(tile);
+        }
+        foreach (Shelf.Item item in _shelf.Items)
+        {
+            if (_tiles.ContainsKey(item)) continue;
+            var tile = new ShelfTile(item) { Margin = new Thickness(0, 0, ShelfStep - ShelfTile.Wide, 0) };
+            tile.MouseLeftButtonDown += Tile_MouseLeftButtonDown;
+            tile.MouseMove += Tile_MouseMove;
+            tile.MouseLeftButtonUp += Tile_MouseLeftButtonUp;
+            tile.Removed += t => _shelf.Remove(t.Item);
+            _tiles[item] = tile;
+            ShelfTiles.Children.Add(tile);
+            if (ShelfView.IsVisible) Arrive(tile);
+        }
+
+        int count = _shelf.Items.Count;
+        // the digits roll the way the number goes
+        BubbleShelfText.Down = MenuShelf.Down = count < _shelfShown;
+        _shelfShown = count;
+        // emptied, the bubble keeps its last number while it tucks away
+        if (count > 0) BubbleShelfText.Text = count.ToString();
+        MenuShelf.Text = count > 0 ? count.ToString() : "";
+        ShelfClear.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        SyncShelfHint();
+        ScrollShelf(0);
+        SetTargets();
+    }
+
+    void Arrive(ShelfTile tile)
+    {
+        var grow = new DoubleAnimation(0.5, 1, Ms(420)) { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.5 } };
+        tile.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+        tile.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
+        tile.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Ms(240)));
+
+        var blur = new BlurEffect { Radius = 8 };
+        tile.Effect = blur;
+        var sharpen = new DoubleAnimation(0, Ms(320));
+        sharpen.Completed += (_, _) =>
+        {
+            // drop the effect so the picture and the name are rendered crisp again
+            if (ReferenceEquals(tile.Effect, blur)) tile.Effect = null;
+        };
+        blur.BeginAnimation(BlurEffect.RadiusProperty, sharpen);
+    }
+
+    // it shrinks into nothing while the gap it leaves closes, the tiles after it sliding over
+    void Leave(ShelfTile tile)
+    {
+        tile.IsHitTestVisible = false;
+        bool seen = ShelfView.IsVisible;
+        Duration time = Ms(seen ? 300 : 0);
+        var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var shrink = new DoubleAnimation(0.5, time) { EasingFunction = ease };
+        tile.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, shrink);
+        tile.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, shrink);
+        tile.BeginAnimation(OpacityProperty, new DoubleAnimation(0, Ms(seen ? 180 : 0)));
+        tile.BeginAnimation(MarginProperty, new ThicknessAnimation(new Thickness(0), time) { EasingFunction = ease });
+        var close = new DoubleAnimation(0, time) { EasingFunction = ease };
+        close.Completed += (_, _) => ShelfTiles.Children.Remove(tile);
+        tile.BeginAnimation(WidthProperty, close);
+    }
+
+    // with nothing on it the shelf says what it is for and is a place to click; a drag over it outlines where to let go,
+    // and so, more faintly, does the pointer over the empty shelf
+    void SyncShelfHint()
+    {
+        bool empty = _shelf.Items.Count == 0;
+        ShelfHintText.Text = _dropping ? "Отпустите, чтобы положить" : "Перетащите сюда файлы";
+        ShelfHintMore.Opacity = _dropping ? 0 : 1;
+        ShelfHint.IsHitTestVisible = empty && !_dropping;
+        ShelfHint.BeginAnimation(OpacityProperty, new DoubleAnimation(empty ? 1 : 0, Ms(200)));
+        double zone = _dropping ? 0.5 : empty && ShelfHint.IsMouseOver ? 0.25 : 0;
+        ShelfZone.BeginAnimation(OpacityProperty, new DoubleAnimation(zone, Ms(zone > 0 ? 150 : 300)));
+    }
+
+    void ShelfHint_MouseHover(object sender, MouseEventArgs e) => SyncShelfHint();
+
+    /// <summary>Puts files on the shelf from the system's dialog, for when there is nothing at hand to drag.</summary>
+    void ShelfAdd_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Title = "Положить на полку", Multiselect = true };
+        bool picked;
+        _picking = true;
+        try { picked = dialog.ShowDialog(this) == true; }
+        catch (Exception ex)
+        {
+            App.Log(ex);
+            picked = false;
+        }
+        finally { _picking = false; }
+        if (picked) _shelf.Add(dialog.FileNames);
+
+        // the shelf stayed open to show them arrive; then it goes the way it would have gone without the dialog
+        Mouse.Synchronize();
+        _hover = Island.IsMouseOver;
+        SetTargets();
+        SyncShelfHint();
+        if (_hover || _panel == Panel.None) return;
+        _collapseTimer.Interval = BubbleLinger;
+        _collapseTimer.Start();
+    }
+
+    /// <summary>How far the row of tiles reaches past the strip that shows it.</summary>
+    double ShelfOverflow => Math.Max(_shelf.Items.Count * ShelfStep - (ShelfStep - ShelfTile.Wide)
+        - (ShelfView.Width - ShelfStrip.Margin.Left - ShelfStrip.Margin.Right), 0);
+
+    /// <summary>The end of the row's mask: see-through as soon as <paramref name="past"/> px of tiles lie beyond it.</summary>
+    static Color Edge(double past) => Color.FromArgb((byte)Math.Round(255 * (1 - Math.Clamp(past / ShelfFade, 0, 1))), 0, 0, 0);
+
+    void ScrollShelf(int tiles)
+    {
+        _shelfScroll.Target = Math.Clamp(_shelfScroll.Target + tiles * ShelfStep, 0, ShelfOverflow);
+        Animate();
+    }
+
+    void ShelfRow_Click(object sender, RoutedEventArgs e)
+    {
+        _panel = Panel.Shelf;
+        UpdateView();
+    }
+
+    void ShelfClear_Click(object sender, RoutedEventArgs e) => _shelf.Clear();
+
+    // a press on a tile is the tile's: no squeeze of the pill, and its release does not close the shelf
+    void Tile_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        _tilePressed = (ShelfTile)sender;
+        _tileFrom = e.GetPosition(this);
+        _tilePressed.CaptureMouse();
+    }
+
+    void Tile_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_tilePressed != sender || e.LeftButton != MouseButtonState.Pressed) return;
+        Vector moved = e.GetPosition(this) - _tileFrom;
+        if (Math.Abs(moved.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(moved.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        ShelfTile tile = _tilePressed;
+        _tilePressed = null;
+        tile.ReleaseMouseCapture();
+        Carry(tile);
+    }
+
+    // a click without a drag opens the file, and the island gets out of its way
+    void Tile_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_tilePressed != sender) return;
+        e.Handled = true;
+        ShelfTile tile = _tilePressed;
+        _tilePressed = null;
+        tile.ReleaseMouseCapture();
+
+        try { Process.Start(new ProcessStartInfo(tile.Item.Path) { UseShellExecute = true }); }
+        catch (Exception ex)
+        {
+            App.Log(ex);
+            // gone from where it lay: nothing to keep on the shelf
+            if (!File.Exists(tile.Item.Path) && !Directory.Exists(tile.Item.Path)) _shelf.Remove(tile.Item);
+            return;
+        }
+        Open(Panel.None);
+        UpdateView();
+        SetTargets();
+    }
+
+    /// <summary>
+    /// The file goes where it is dragged. It is offered to be copied or linked there, never moved: it stays where it
+    /// lay, whatever the place it is dropped on would do by default.
+    /// </summary>
+    void Carry(ShelfTile tile)
+    {
+        var data = new DataObject(DataFormats.FileDrop, new[] { tile.Item.Path });
+        tile.BeginAnimation(OpacityProperty, new DoubleAnimation(0.35, Ms(120)));
+        DragDropEffects done;
+        _carrying = true;
+        try { done = DragDrop.DoDragDrop(tile, data, DragDropEffects.Copy | DragDropEffects.Link); }
+        catch (Exception ex)
+        {
+            App.Log(ex);
+            done = DragDropEffects.None;
+        }
+        finally { _carrying = false; }
+
+        // put down somewhere, it has been carried there and is off the shelf; let go anywhere else, it comes back
+        if (done != DragDropEffects.None) _shelf.Remove(tile.Item);
+        else tile.BeginAnimation(OpacityProperty, new DoubleAnimation(1, Ms(200)));
+
+        // the drag kept the pointer to itself: whether it is still over the island has to be asked
+        Mouse.Synchronize();
+        _hover = Island.IsMouseOver;
+        SetTargets();
+        if (_hover || _panel == Panel.None) return;
+        _collapseTimer.Interval = CollapseDelay;
+        _collapseTimer.Start();
+    }
+
+    /// <summary>What a drag over the island may do with its files: they are only pointed at, never taken from where they lie.</summary>
+    static DragDropEffects Keep(DragEventArgs e) =>
+        e.AllowedEffects.HasFlag(DragDropEffects.Copy) ? DragDropEffects.Copy : e.AllowedEffects & DragDropEffects.Link;
+
+    // files dragged over the island open the shelf, the place to put them down outlined
+    void Root_DragOver(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        if (_carrying || _hidden || _away || !e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effects = DragDropEffects.None;
+            return;
+        }
+        e.Effects = Keep(e);
+        _dropTimer.Stop();
+        _collapseTimer.Stop();
+        if (_dropping) return;
+
+        _dropping = true;
+        _beforeDrop = _panel;
+        Open(Panel.Shelf);
+        SyncShelfHint();
+        UpdateView();
+    }
+
+    void Root_DragLeave(object sender, DragEventArgs e)
+    {
+        if (!_dropping) return;
+        _dropTimer.Stop();
+        _dropTimer.Start();
+    }
+
+    void Root_Drop(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        if (!_dropping) return;
+        _dropTimer.Stop();
+        e.Effects = Keep(e);
+        EndDrop();
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths) _shelf.Add(paths);
+
+        // the pointer is over the island, but nothing says so until it moves: a moment to get to it before the shelf closes
+        _collapseTimer.Interval = BubbleLinger;
+        _collapseTimer.Start();
+    }
+
+    void EndDrop()
+    {
+        _dropping = false;
+        SyncShelfHint();
     }
 
     // ───────────────────────── menu ─────────────────────────

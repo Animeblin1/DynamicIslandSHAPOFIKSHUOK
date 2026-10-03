@@ -6,7 +6,7 @@ namespace DynamicIsland;
 public enum Glyph
 {
     Mute, Quiet, Mid, Loud, Headphones, Speaker, Vpn, Offline, Wifi, Wired, Bell, Note, Battery, Minus, Plus, Chevron, Back,
-    Clock, Gear, Lines, Sparkle, Rim, Expand, Windows, Power, Look, Size, Gap, Drop,
+    Clock, Gear, Lines, Sparkle, Rim, Expand, Windows, Power, Look, Size, Gap, Drop, Moon, Tray, Cross,
 }
 
 /// <summary>
@@ -78,6 +78,13 @@ public sealed class Icon : FrameworkElement
         // the edge of the screen and the island under it
         [Glyph.Gap] = new(Lines: "M4,4.6 H20 M8.5,12.6 H15.5 A3.2,3.2 0 0 1 15.5,19 H8.5 A3.2,3.2 0 0 1 8.5,12.6 Z", Line: 2.2),
         [Glyph.Drop] = new("M12,4 C9.6,7.4 6.2,11 6.2,14.4 A5.8,5.8 0 0 0 17.8,14.4 C17.8,11 14.4,7.4 12,4 Z"),
+
+        // "Do not disturb": a disc with a smaller one bitten out of its top right
+        [Glyph.Moon] = new("M10.58,4.44 A8.2,8.2 0 1 0 19.52,13.74 A6.8,6.8 0 0 1 10.58,4.44 Z"),
+        // the shelf: an open tray, its rim dipping where things are put in
+        [Glyph.Tray] = new(Lines: "M4,13.5 L6.4,6.2 A1.6,1.6 0 0 1 7.9,5.1 H16.1 A1.6,1.6 0 0 1 17.6,6.2 L20,13.5 V17.6 A2,2 0 0 1 18,19.6"
+            + " H6 A2,2 0 0 1 4,17.6 Z M4,13.5 H8.6 L9.8,15.6 H14.2 L15.4,13.5 H20"),
+        [Glyph.Cross] = new(Lines: "M7.5,7.5 L16.5,16.5 M16.5,7.5 L7.5,16.5", Line: 2.6),
     };
 
     static readonly Dictionary<Glyph, Geometry> Shapes = new();

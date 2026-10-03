@@ -85,6 +85,35 @@ static class Settings
         set => Write(nameof(Accent), _accent = value is { } c ? c.R << 16 | c.G << 8 | c.B : 0);
     }
 
+    /// <summary>Paths of the files lying on the shelf, in the order they were put there.</summary>
+    public static string[] Shelf
+    {
+        get
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(Key);
+                return key?.GetValue(nameof(Shelf)) as string[] ?? [];
+            }
+            catch
+            {
+                return [];
+            }
+        }
+        set
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.CreateSubKey(Key);
+                key.SetValue(nameof(Shelf), value, RegistryValueKind.MultiString);
+            }
+            catch (Exception ex)
+            {
+                App.Log(ex);
+            }
+        }
+    }
+
     static bool Read(string name) => Read(name, 1) != 0;
 
     static int Read(string name, int fallback)

@@ -99,6 +99,29 @@ static class Native
         return r.Left <= m.Left && r.Top <= m.Top && r.Right >= m.Right && r.Bottom >= m.Bottom;
     }
 
+    // the shell publishes the profile of "Do not disturb" under this name: 0 off, 1 on (priority only), 2 alarms only
+    const ulong WNF_SHEL_QUIETHOURS_ACTIVE_PROFILE_CHANGED = 0x0D83063EA3BF1C75;
+
+    [DllImport("ntdll.dll")]
+    static extern int NtQueryWnfStateData(ref ulong name, IntPtr type, IntPtr scope, out uint stamp, out int data, ref uint size);
+
+    /// <summary>"Do not disturb" is on; null when the system does not say.</summary>
+    public static bool? DoNotDisturb()
+    {
+        ulong name = WNF_SHEL_QUIETHOURS_ACTIVE_PROFILE_CHANGED;
+        uint size = sizeof(int);
+        try
+        {
+            if (NtQueryWnfStateData(ref name, IntPtr.Zero, IntPtr.Zero, out _, out int profile, ref size) != 0) return null;
+            // never set since the system started: nobody has turned it on
+            return size >= sizeof(int) && profile != 0;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static bool TryGetBattery(out int percent, out bool plugged)
     {
         percent = 0;
