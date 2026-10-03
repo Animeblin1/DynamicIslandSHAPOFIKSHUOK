@@ -47,8 +47,9 @@ public partial class MainWindow : Window
     static readonly int[] Gaps = [0, 4, 8, 12, 16, 24]; // px between the top of the screen and the island
     const double SourcePause = 0.25; // seconds between two turns to another app: a wheel sends its notches in bursts
     const double BubbleGap = 7; // between the split-off bubble and the pill
-    const double CarryTimer = 78, CarryShelf = 54; // width of the bubble carrying either...
-    const double CarryBoth = 8; // ...and how much narrower it is than the two together, when it carries both
+    const double CarryTimer = 78, CarryShelf = 54; // width of the bubble carrying either (the shelf's at the least: more digits widen it)...
+    const double CarryBoth = 11; // ...and how much narrower it is than the two together, when it carries both
+    const double ShelfEnd = 13, ShelfEndTimed = 10; // the count's room to the bubble's right end, alone and after the timer, whose own ends are narrower
     const double RideLeast = 0.5, RideMost = 1.15; // how far the content of the island is scaled as it rides a change of shape
     const double MotionPace = 650; // px per second of the island's edges that blur what it shows by 1 px...
     const double MotionMost = 4; // ...up to this
@@ -94,6 +95,7 @@ public partial class MainWindow : Window
     readonly Spring _split = new(0); // 0: the bubble is tucked behind the pill, 1: it stands on its own
     readonly Spring _bubbleScale = new(1); // the bubble answers the pointer by itself, not along with the pill
     readonly Spring _carryTimer = new(0), _carryShelf = new(0); // 1: the bubble carries the timer, the shelf
+    readonly Spring _shelfWide = new(CarryShelf); // px the shelf's count takes in the bubble, as many digits as it has
     readonly Spring _shelfScroll = new(0); // px the tiles are moved left by the wheel
     readonly Spring _push = new(0); // px the volume bar is stretched past its end
     readonly Spring _size = new(Settings.Scale / 100.0), _gap = new(Settings.Gap); // the looks picked in the menu
@@ -234,6 +236,7 @@ public partial class MainWindow : Window
         _push.Tune(420, 18); // loose enough to wobble once it is let go
         _carryTimer.Tune(260, 24);
         _carryShelf.Tune(260, 24);
+        _shelfWide.Tune(260, 24);
         _shelfScroll.Tune(260, 30);
         _size.Tune(240, 26);
         _gap.Tune(240, 26);
@@ -480,12 +483,14 @@ public partial class MainWindow : Window
         {
             _carryTimer.Target = timer ? 1 : 0;
             _carryShelf.Target = shelf ? 1 : 0;
+            if (shelf) _shelfWide.Target = ShelfWide();
             // tucked away, it comes out already the width of what it carries
             if (_split.Value < 0.05)
             {
                 _carryTimer.Value = _carryTimer.Target;
                 _carryShelf.Value = _carryShelf.Target;
-                _carryTimer.Velocity = _carryShelf.Velocity = 0;
+                _shelfWide.Value = _shelfWide.Target;
+                _carryTimer.Velocity = _carryShelf.Velocity = _shelfWide.Velocity = 0;
             }
         }
         // a ringing timer shows itself even over a fullscreen app. Out of sight is past the gap above it too,
@@ -494,6 +499,13 @@ public partial class MainWindow : Window
         _scale.Target = _pressed ? (compact ? 0.93 : 0.975) : _hover && compact ? 1.07 : 1;
         _bubbleScale.Target = _bubblePressed ? 0.93 : _bubbleHover ? 1.07 : 1;
         Animate();
+    }
+
+    /// <summary>The bubble's room for the shelf: the count with its icon, as far from the left end as from the right.</summary>
+    double ShelfWide()
+    {
+        BubbleShelf.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        return Math.Max(CarryShelf, BubbleShelf.DesiredSize.Width - BubbleShelf.Margin.Right + 2 * ShelfEnd);
     }
 
     // ───────────────────────── animation ─────────────────────────
@@ -524,6 +536,7 @@ public partial class MainWindow : Window
         moving |= _bubbleScale.Advance(dt);
         moving |= _carryTimer.Advance(dt);
         moving |= _carryShelf.Advance(dt);
+        moving |= _shelfWide.Advance(dt);
         moving |= _shelfScroll.Advance(dt);
         moving |= _push.Advance(dt);
         ApplyShape();
@@ -586,12 +599,14 @@ public partial class MainWindow : Window
         // carries, and gets wider or narrower as one of the two comes or goes, that one fading with it
         double split = _split.Value, bubble = Math.Max(_bubbleScale.Value, 0.01);
         double timer = Math.Max(_carryTimer.Value, 0), shelf = Math.Max(_carryShelf.Value, 0);
-        double wide = Math.Max(CarryTimer * timer + CarryShelf * shelf - CarryBoth * timer * shelf, Bubble.Height);
+        double wide = Math.Max(CarryTimer * timer + _shelfWide.Value * shelf - CarryBoth * timer * shelf, Bubble.Height);
         bool apart = split > 0.01;
         Bubble.Visibility = apart ? Visibility.Visible : Visibility.Collapsed;
         Bubble.Width = wide;
         BubbleTimer.Opacity = Math.Clamp(timer * 2 - 1, 0, 1);
         BubbleShelf.Opacity = Math.Clamp(shelf * 2 - 1, 0, 1);
+        // beside the timer the count keeps to the timer's ends, so the two sit as one row in the middle
+        BubbleShelf.Margin = new Thickness(0, 0, ShelfEnd + (ShelfEndTimed - ShelfEnd) * Math.Clamp(timer, 0, 1), 0);
         BubbleMove.X = (w * scale - wide) / 2 + (BubbleGap + wide) * split;
         BubbleScale.ScaleX = BubbleScale.ScaleY = bubble;
         BubbleBody.Opacity = Math.Clamp(split * 4 - 3, 0, 1);
